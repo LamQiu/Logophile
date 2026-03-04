@@ -651,7 +651,7 @@ PrefabInstance:
     - target: {fileID: 1205862054053234959, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_OnValueChanged.m_PersistentCalls.m_Calls.Array.data[0].m_Target
       value: 
-      objectReference: {fileID: 835423431}
+      objectReference: {fileID: 1993192357}
     - target: {fileID: 2755410729029561474, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchorMax.y
       value: 0
@@ -675,7 +675,7 @@ PrefabInstance:
     - target: {fileID: 3800408159426771778, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_OnValueChanged.m_PersistentCalls.m_Calls.Array.data[0].m_Target
       value: 
-      objectReference: {fileID: 835423431}
+      objectReference: {fileID: 1993192357}
     - target: {fileID: 4023635840301161914, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchorMax.y
       value: 0
@@ -1575,17 +1575,6 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!114 &835423431 stripped
-MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 314024784337366711, guid: c66087299efbc417088a621238896aa5, type: 3}
-  m_PrefabInstance: {fileID: 6418880895768740777}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ad461e9530f899f48bf1b4cb089add2d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: '::'
 --- !u!1001 &901549657
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -3136,7 +3125,7 @@ PrefabInstance:
     - target: {fileID: 4654237987141200194, guid: df941f64887b6e146b8ac4698ef55094, type: 3}
       propertyPath: m_OnValueChanged.m_PersistentCalls.m_Calls.Array.data[0].m_Target
       value: 
-      objectReference: {fileID: 835423431}
+      objectReference: {fileID: 1993192357}
     - target: {fileID: 4727246896669153826, guid: df941f64887b6e146b8ac4698ef55094, type: 3}
       propertyPath: m_AnchorMax.y
       value: 0
@@ -3716,6 +3705,17 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1921242248}
   m_CullTransparentMesh: 1
+--- !u!114 &1993192357 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 567381560449278984, guid: c66087299efbc417088a621238896aa5, type: 3}
+  m_PrefabInstance: {fileID: 6418880895768740777}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3275114e54fb5234b83e10a1c92aafcd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AudioManager
 --- !u!1001 &6418880895768740777
 PrefabInstance:
   m_ObjectHideFlags: 0
