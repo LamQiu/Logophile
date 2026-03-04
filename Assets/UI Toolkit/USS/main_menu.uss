@@ -1,0 +1,31 @@
+:root {
+}
+
+.panel {
+}
+
+.layout_root {
+    height: 100%;
+}
+
+.word_input_text {
+    height: 126px;
+    -unity-text-align: upper-left;
+    width: 100%;
+}
+
+/*This sets the bottom input field into the correct stats*/
+#WordInput .unity-text-element.unity-text-element__selectable.unity-text-element--inner-input-field-component {
+    font-size: 69px;
+
+    padding-left: 25px;
+    padding-right: 25px;
+    padding-top: 25px;
+    padding-bottom: 15px;
+
+    color: #EEEAE4;
+}
+
+#WordInput .unity-text-field__input.unity-base-field__input.unity-base-text-field__input--single-line.unity-base-text-field__input{
+    background-color: #252525;
+}

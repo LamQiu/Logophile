@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="ParameterPreset" id="{c9ac725d-e5a6-4f52-aee0-e4ea99a4788c}">
+		<property name="name">
+			<value>sub_duck</value>
+		</property>
+		<relationship name="folder">
+			<destination>{43aa2cd9-5bcf-4f65-9e35-293500f7e0ab}</destination>
+		</relationship>
+		<relationship name="parameter">
+			<destination>{59914365-3ad3-4337-9323-20209ba07d15}</destination>
+		</relationship>
+	</object>
+	<object class="GameParameter" id="{59914365-3ad3-4337-9323-20209ba07d15}">
+		<property name="isGlobal">
+			<value>true</value>
+		</property>
+		<property name="initialValue">
+			<value>0</value>
+		</property>
+		<property name="isExposedRecursively">
+			<value>false</value>
+		</property>
+		<relationship name="modulators">
+			<destination>{45551c77-d8d1-4c8f-a697-484fc82aba71}</destination>
+		</relationship>
+	</object>
+	<object class="SidechainModulator" id="{45551c77-d8d1-4c8f-a697-484fc82aba71}">
+		<property name="nameOfPropertyBeingModulated">
+			<value>cursorPosition</value>
+		</property>
+		<property name="amount">
+			<value>100</value>
+		</property>
+		<property name="attackTime">
+			<value>16</value>
+		</property>
+		<property name="releaseTime">
+			<value>14</value>
+		</property>
+		<property name="minimumThreshold">
+			<value>-60</value>
+		</property>
+		<property name="maximumThreshold">
+			<value>-21.7000008</value>
+		</property>
+		<relationship name="sidechains">
+			<destination>{7f2c7e26-dad2-4c26-afae-cd8b6fe53626}</destination>
+		</relationship>
+	</object>
+</objects>

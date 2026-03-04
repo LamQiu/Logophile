@@ -49,7 +49,7 @@ MonoBehaviour:
   WaitingScreenUI: {fileID: 0}
   GameScreenUI: {fileID: 0}
   ResolutionScreenUI: {fileID: 0}
-  WinScreen: {fileID: 0}
+  WinScreenUI: {fileID: 0}
   MainMenuCommandInputFieldEnterPlayKey: play
 --- !u!1 &962020490170774324
 GameObject:
@@ -123,6 +123,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   ShowTopMostFoldoutHeaderGroup: 1
+  MaxPlayerHp: 20
+  WinGameScore: 50
+  MaxGameScore: 70
   GameStartedState:
     m_InternalValue: 0
 --- !u!114 &929763106978476673
@@ -285,6 +288,98 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!1 &4038124257439522196
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8564670162738086646}
+  - component: {fileID: 4804445559334538852}
+  - component: {fileID: 567381560449278984}
+  m_Layer: 0
+  m_Name: FMODAudioManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8564670162738086646
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4038124257439522196}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2739350439052109015}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &4804445559334538852
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4038124257439522196}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3160ab0a1988f1849a8b70b0ac05fe9e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FMODEvents
+  musicMainMenu:
+    Guid:
+      Data1: -459730078
+      Data2: 1185905174
+      Data3: 1069161630
+      Data4: -1381041994
+    Path: event:/music/mus_main_menu
+  musicTyping:
+    Guid:
+      Data1: 1766050839
+      Data2: 1240925306
+      Data3: 15453577
+      Data4: 1717994454
+    Path: event:/music/mus_typing
+  musicWaiting:
+    Guid:
+      Data1: -1078589011
+      Data2: 1263107526
+      Data3: 1573065637
+      Data4: -672114920
+    Path: event:/music/mus_waiting
+  playerType:
+    Guid:
+      Data1: 775392640
+      Data2: 1311924612
+      Data3: -1824642653
+      Data4: 1696591766
+    Path: event:/sfx/typing/player_type
+  playerConfirm:
+    Guid:
+      Data1: -1922674891
+      Data2: 1179628211
+      Data3: -567148919
+      Data4: -1532810791
+    Path: event:/sfx/typing/player_confirm
+--- !u!114 &567381560449278984
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4038124257439522196}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3275114e54fb5234b83e10a1c92aafcd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AudioManager
 --- !u!1 &4424085361288511837
 GameObject:
   m_ObjectHideFlags: 0
@@ -356,8 +451,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerManager
   ShowTopMostFoldoutHeaderGroup: 1
-  hostOffset: {x: -4.6, y: -3.5}
-  clientOffset: {x: 4.6, y: -3.5}
 --- !u!1 &4649492026752782067
 GameObject:
   m_ObjectHideFlags: 0
@@ -511,33 +604,15 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoundManager
   ShowTopMostFoldoutHeaderGroup: 1
-  roundTimes:
-  - 10
-  roundTimeLimitInSeconds: 15
-  banLetterPerRound: 3
-  submittedAnswers: []
-  resoluteTimeInSeconds: 5
-  resolutionText: {fileID: 0}
-  resolutionBGImage: {fileID: 0}
-  winText: {fileID: 0}
-  winImage: {fileID: 0}
-  titleImage: {fileID: 0}
-  banLetterBG: {fileID: 0}
-  resolutionBG: {fileID: 0}
-  BG: {fileID: 0}
-  bannedLettersText: {fileID: 0}
-  defaultTimeScaleMultiplier: 1
-  timeMultiplierText: {fileID: 0}
-  timeMultiplierIndicatorImage: {fileID: 0}
-  timeMultiplierIndicatorSprites:
-  - {fileID: 21300000, guid: 6c862bc9a70a94ca19bf3a4314513193, type: 3}
-  - {fileID: 21300000, guid: d92fe376e90ba4b79a264b2e47c71aeb, type: 3}
-  - {fileID: 21300000, guid: d90a80cf8b2c54b56a69c228a2c18d2c, type: 3}
+  RoundTimeLimitInSeconds: 0
+  ResolutionTimeLimitInSeconds: 0
+  BanLetterAtStartOfResolutionPhaseOfRound: 3
+  SubmittedAnswers: []
   IsResolutionPhase:
     m_InternalValue: 0
   RoundTimeRemainingInSeconds:
     m_InternalValue: 0
-  ResolutionTimeRemaining:
+  ResolutionTimeRemainingInSeconds:
     m_InternalValue: 0
 --- !u!1 &7536887141762829346
 GameObject:
@@ -575,6 +650,7 @@ Transform:
   - {fileID: 4260112627196582783}
   - {fileID: 8288955059660988248}
   - {fileID: 5681663018384758252}
+  - {fileID: 8564670162738086646}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &8087513428127356366

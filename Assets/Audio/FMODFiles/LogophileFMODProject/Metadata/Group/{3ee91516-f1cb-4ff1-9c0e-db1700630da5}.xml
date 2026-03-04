@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="MixerGroup" id="{3ee91516-f1cb-4ff1-9c0e-db1700630da5}">
+		<property name="name">
+			<value>music</value>
+		</property>
+		<relationship name="effectChain">
+			<destination>{980287e6-983e-450d-baa1-a1fa3a3344e0}</destination>
+		</relationship>
+		<relationship name="panner">
+			<destination>{698d8bdd-4c16-412c-981e-c7a56dd10404}</destination>
+		</relationship>
+		<relationship name="output">
+			<destination>{51e95731-a720-4c85-a3f7-2defcbc094dc}</destination>
+		</relationship>
+	</object>
+	<object class="MixerBusEffectChain" id="{980287e6-983e-450d-baa1-a1fa3a3344e0}">
+		<relationship name="effects">
+			<destination>{e4995d87-4306-410e-af93-9b7fd63e18a4}</destination>
+			<destination>{ba15d4b0-1cc3-4b33-a3ae-b326f7f1a259}</destination>
+		</relationship>
+	</object>
+	<object class="MixerBusPanner" id="{698d8bdd-4c16-412c-981e-c7a56dd10404}" />
+	<object class="MixerBusFader" id="{e4995d87-4306-410e-af93-9b7fd63e18a4}" />
+	<object class="MultibandEqEffect" id="{ba15d4b0-1cc3-4b33-a3ae-b326f7f1a259}">
+		<property name="filterTypeA">
+			<value>9</value>
+		</property>
+		<property name="frequencyA">
+			<value>49.7680855</value>
+		</property>
+		<relationship name="automators">
+			<destination>{84175505-c850-480f-8107-035d76668239}</destination>
+		</relationship>
+	</object>
+	<object class="Automator" id="{84175505-c850-480f-8107-035d76668239}">
+		<property name="nameOfPropertyBeingAutomated">
+			<value>gainA</value>
+		</property>
+		<relationship name="automationCurves">
+			<destination>{c215c215-10ab-4203-a24a-2dcc4b14910d}</destination>
+		</relationship>
+	</object>
+	<object class="AutomationCurve" id="{c215c215-10ab-4203-a24a-2dcc4b14910d}">
+		<relationship name="parameter">
+			<destination>{59914365-3ad3-4337-9323-20209ba07d15}</destination>
+		</relationship>
+		<relationship name="automationPoints">
+			<destination>{5a3ca9b3-853f-49cb-b33e-f7af669ee9be}</destination>
+			<destination>{1529c669-1816-450d-a494-3e2a13674c4d}</destination>
+		</relationship>
+	</object>
+	<object class="AutomationPoint" id="{5a3ca9b3-853f-49cb-b33e-f7af669ee9be}">
+		<property name="position">
+			<value>0</value>
+		</property>
+		<property name="value">
+			<value>0</value>
+		</property>
+	</object>
+	<object class="AutomationPoint" id="{1529c669-1816-450d-a494-3e2a13674c4d}">
+		<property name="position">
+			<value>1</value>
+		</property>
+		<property name="value">
+			<value>-8</value>
+		</property>
+	</object>
+</objects>

@@ -1,9 +1,14 @@
+using FMOD.Studio;
+using FMODUnity;
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 
 public class SoundManager : NetworkBehaviour
 {
     public static SoundManager Instance;
+
+    private List<EventInstance> snapshotEventInstances;
 
     public AudioSource bgmSource;
     public AudioSource sfxSource;
@@ -34,16 +39,16 @@ public class SoundManager : NetworkBehaviour
     {
         if (bgmSource.clip == titleBgmClip && bgmSource.isPlaying) return;
 
-        bgmSource.clip = titleBgmClip;
-        bgmSource.Play();
+        //musicEventInstance = CreateInstance(musicMainMenu);
+        //musicEventInstance.start();
     }
 
     public void PlayGameBgm()
     {
         if (bgmSource.clip == gameBgmClip && bgmSource.isPlaying) return;
 
-        bgmSource.clip = gameBgmClip;
-        bgmSource.Play();
+        //musicEventInstance = CreateInstance(musicTyping);
+        //musicEventInstance.start();
     }
 
     public void StopBgm()
@@ -53,7 +58,7 @@ public class SoundManager : NetworkBehaviour
 
     public void PlayTypingSfx()
     {
-        sfxSource.PlayOneShot(typingClip);
+        //sfxSource.PlayOneShot(typingClip);
     }
 
     [Rpc(SendTo.Server)]

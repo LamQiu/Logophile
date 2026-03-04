@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objects serializationModel="Studio.02.03.00">
+	<object class="AudioFile" id="{a34234c3-0c04-4321-afc1-d1988e3c64ca}">
+		<property name="assetPath">
+			<value>music/mus_typing.wav</value>
+		</property>
+		<property name="frequencyInKHz">
+			<value>48</value>
+		</property>
+		<property name="channelCount">
+			<value>2</value>
+		</property>
+		<property name="length">
+			<value>14.769229166666667</value>
+		</property>
+		<relationship name="masterAssetFolder">
+			<destination>{43d6da24-42e2-49b5-b1a4-2cafad05965f}</destination>
+		</relationship>
+	</object>
+</objects>

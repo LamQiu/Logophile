@@ -373,7 +373,7 @@ public class Client : NetworkBehaviour
         m_answerCheckedValid = true;
         AnswerCheckedValid.Value = true;
         UIManager.Instance.UpdateAnswerInputFieldInteractability(false);
-        SoundManager.Instance?.PlaySubmitSfxServerRpc();
+        AudioManager.Instance.PlaySubmitSfxServerRpc();
 
         return true;
     }
@@ -396,8 +396,9 @@ public class Client : NetworkBehaviour
 
     private void OnLocalInputFieldChanged(string value)
     {
-        if (SoundManager.Instance != null)
-            SoundManager.Instance.PlayTypingSfx();
+        //if (AudioManager.Instance != null)
+        Debug.Log("type");
+            AudioManager.Instance.PlayTypingSFX();
 
         m_answer = UIManager.Instance.RemoveColorTags(value);
         UpdateServerAnswerServerRpc(m_answer);

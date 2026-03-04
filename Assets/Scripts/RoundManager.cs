@@ -43,7 +43,8 @@ public class RoundManager : NetworkBehaviour
     private void Start()
     {
         ResetRoundManager();
-        ThemeMusicManager.Instance.PlayMainMenuTheme();
+        //ThemeMusicManager.Instance.PlayMainMenuTheme();
+        AudioManager.Instance.PlayMainMenuMusic();
     }
 
     public override void OnNetworkSpawn()
@@ -434,7 +435,7 @@ public class RoundManager : NetworkBehaviour
         PlayerManager.Instance.GetHost().UpdateConfirmClientRpc(clientId);
         PlayerManager.Instance.GetClient(1).UpdateConfirmClientRpc(clientId);
 
-        SoundManager.Instance?.PlaySubmitSfxServerRpc();
+        AudioManager.Instance.PlaySubmitSfxServerRpc();
 
         if (m_confirmedResolutionClients.Count >= 2)
             EndResolutionPhase();
@@ -495,7 +496,8 @@ public class RoundManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void EnterResolutionPhaseClientRpc(string hostAnswer, string clientAnswer)
     {
-        ThemeMusicManager.Instance.PlayScoringTheme();
+        //ThemeMusicManager.Instance.PlayScoringTheme();
+        AudioManager.Instance.PlayWaitingMusic();
 
         foreach (var c in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
         {
@@ -521,7 +523,8 @@ public class RoundManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void EnterNextRoundClientRpc()
     {
-        ThemeMusicManager.Instance.PlayTypingTheme();
+        //ThemeMusicManager.Instance.PlayTypingTheme();
+        AudioManager.Instance.PlayTypingMusic();
         m_localRoundTimeRemainingInSeconds = RoundTimeLimitInSeconds;
         m_localResolutionTimeRemainingInSeconds = ResolutionTimeLimitInSeconds;
 
@@ -542,7 +545,8 @@ public class RoundManager : NetworkBehaviour
     {
         UIManager.Instance.EnterWinScreen();
         UIManager.Instance.UpdateWinText(playerID + " wins");
-        ThemeMusicManager.Instance.PlayScoringTheme();
+        //ThemeMusicManager.Instance.PlayScoringTheme();
+        AudioManager.Instance.PlayWaitingMusic();
     }
 
     // private List<string> m_usedAnswers = new List<string>();
