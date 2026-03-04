@@ -83,7 +83,6 @@ public class AudioManager : Singleton<AudioManager>
 
     public void PlayTypingSFX()
     {
-        Debug.Log("Type");
         RuntimeManager.PlayOneShot(FMODEvents.Instance.playerType);
     }
 
