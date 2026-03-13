@@ -2,8 +2,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Sirenix.OdinInspector;
+using Unity.Multiplayer.Center.NetcodeForGameObjectsExample.DistributedAuthority;
 using Unity.Netcode;
 using UnityEngine;
+using UIManager = UI.UIManager;
 
 public class PromptGenerator : NetworkBehaviour
 {
@@ -65,8 +67,32 @@ public class PromptGenerator : NetworkBehaviour
 
     PromptContent RandomContentExceptNone()
     {
-        var all = System.Enum.GetValues(typeof(PromptContent)).Cast<PromptContent>().ToList();
-        all.Remove(PromptContent.None);
+        var banned = UIManager.Instance.BannedLetters;
+
+        var all = System.Enum.GetValues(typeof(PromptContent))
+            .Cast<PromptContent>()
+            .Where(c => c != PromptContent.None)
+            .ToList();
+
+        // 过滤 banned letters
+        all = all.Where(c =>
+        {
+            string content = c.ToString();
+            foreach (char bannedChar in banned)
+            {
+                if (content.Contains(bannedChar))
+                    return false;
+            }
+
+            return true;
+        }).ToList();
+
+        if (all.Count == 0)
+        {
+            Debug.LogWarning("No valid prompt content after banning letters!");
+            return PromptContent.A; // fallback
+        }
+
         return all[Random.Range(0, all.Count)];
     }
 

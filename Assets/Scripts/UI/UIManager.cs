@@ -227,6 +227,7 @@ namespace UI
         }
 
         private string m_bannedLetters;
+        public string BannedLetters => m_bannedLetters;
 
         public void MarkBannedLetters(string bannedLetters)
         {
