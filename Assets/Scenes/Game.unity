@@ -4278,7 +4278,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3751798781333751423, guid: c66087299efbc417088a621238896aa5, type: 3}
       propertyPath: BanLetterAtStartOfResolutionPhaseOfRound
-      value: 3
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 4474702212909272592, guid: c66087299efbc417088a621238896aa5, type: 3}
       propertyPath: GlobalObjectIdHash
