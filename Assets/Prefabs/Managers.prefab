@@ -607,8 +607,11 @@ MonoBehaviour:
   RoundTimeLimitInSeconds: 0
   ResolutionTimeLimitInSeconds: 0
   BanLetterAtStartOfResolutionPhaseOfRound: 3
+  RoundTimeSpeedMultiplierAfterAnySubmit: 2
   SubmittedAnswers: []
   IsResolutionPhase:
+    m_InternalValue: 0
+  AnyPlayerSubmittedThisRound:
     m_InternalValue: 0
   RoundTimeRemainingInSeconds:
     m_InternalValue: 0

@@ -14,12 +14,15 @@ using Random = UnityEngine.Random;
 public class RoundManager : NetworkBehaviour
 {
     public float RoundTimeLimitInSeconds;
+    /// <summary>Multiplier applied to round timer countdown after any player submits (server + clients stay in sync via <see cref="AnyPlayerSubmittedThisRound"/>).</summary>
+    public float RoundTimeSpeedMultiplierAfterAnySubmit = 2f;
     public float ResolutionTimeLimitInSeconds;
     public int BanLetterAtStartOfResolutionPhaseOfRound = 3;
     private int m_currentRoundIndex = 0;
     public List<string> SubmittedAnswers = new List<string>();
 
     public NetworkVariable<bool> IsResolutionPhase = new NetworkVariable<bool>();
+    public NetworkVariable<bool> AnyPlayerSubmittedThisRound = new NetworkVariable<bool>();
     public NetworkVariable<float> RoundTimeRemainingInSeconds = new NetworkVariable<float>();
     public NetworkVariable<float> ResolutionTimeRemainingInSeconds = new NetworkVariable<float>();
 
@@ -101,6 +104,7 @@ public class RoundManager : NetworkBehaviour
             RoundTimeRemainingInSeconds.Value = RoundTimeLimitInSeconds;
             ResolutionTimeRemainingInSeconds.Value = ResolutionTimeLimitInSeconds;
             IsResolutionPhase.Value = false;
+            AnyPlayerSubmittedThisRound.Value = false;
             m_confirmedResolutionClients.Clear();
             m_submittedAnswerClients.Clear();
             m_isGameEnd = false;
@@ -149,7 +153,8 @@ public class RoundManager : NetworkBehaviour
     {
         if (!_started) return;
 
-        m_localRoundTimeRemainingInSeconds -= Time.deltaTime;
+        float roundTickScale = AnyPlayerSubmittedThisRound.Value ? RoundTimeSpeedMultiplierAfterAnySubmit : 1f;
+        m_localRoundTimeRemainingInSeconds -= Time.deltaTime * roundTickScale;
 
         if (!IsServer) return;
 
@@ -160,7 +165,7 @@ public class RoundManager : NetworkBehaviour
             _promptGenerated = true;
         }
 
-        RoundTimeRemainingInSeconds.Value -= Time.deltaTime;
+        RoundTimeRemainingInSeconds.Value -= Time.deltaTime * roundTickScale;
 
         if (RoundTimeRemainingInSeconds.Value < 0)
         {
@@ -204,6 +209,7 @@ public class RoundManager : NetworkBehaviour
         Debug.Log("Entering Next Round");
 
         m_submittedAnswerClients.Clear();
+        AnyPlayerSubmittedThisRound.Value = false;
 
         m_currentRoundIndex++;
 
@@ -338,6 +344,8 @@ public class RoundManager : NetworkBehaviour
         if (!m_submittedAnswerClients.Contains(clientId))
         {
             m_submittedAnswerClients.Add(clientId);
+            if (m_submittedAnswerClients.Count == 1)
+                AnyPlayerSubmittedThisRound.Value = true;
         }
 
         // Mark answer in round words list
