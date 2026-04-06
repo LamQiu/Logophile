@@ -109,7 +109,9 @@ public class Client : NetworkBehaviour
 
     private void UpdateTimerUI(float timerRemainingInSeconds)
     {
-        UIManager.Instance.UpdateGameScreenTimer(timerRemainingInSeconds / _roundManager.RoundTimeLimitInSeconds);
+        float limit = _roundManager.RoundTimeLimitInSeconds;
+        float normalized = limit > 0f ? timerRemainingInSeconds / limit : 0f;
+        UIManager.Instance.UpdateGameScreenTimer(normalized, _roundManager.AnyPlayerSubmittedThisRound.Value);
     }
 
     private void UpdatePrompt(PromptGenerator.Prompt value)

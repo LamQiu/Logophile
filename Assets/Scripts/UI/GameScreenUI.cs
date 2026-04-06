@@ -19,16 +19,13 @@ namespace UI
         [SerializeField] private GameObject P2LettersCountUI;
         [SerializeField] private TMP_Text CurrentPromptText;
         [SerializeField] private Image TimerImage;
+        [SerializeField] private Color RoundTimerBarNormalColor = new Color(0.52156866f, 0.52156866f, 0.52156866f, 1f);
+        [SerializeField] private Color RoundTimerBarAcceleratedColor = new Color(1f, 0.45f, 0.2f, 1f);
         public TMP_InputField AnswerInputField;
         [SerializeField] private TMP_Text InvalidLettersText;
         [SerializeField] private TMP_Text ResolutionInvalidLettersText;
         [SerializeField] private TMP_Text HintText;
 
-
-        private void Awake()
-        {
-            //UpdateInvalidLettersText("");
-        }
 
         public void Show()
         {
@@ -91,9 +88,10 @@ namespace UI
             CurrentPromptText.text = prompt;
         }
 
-        public void UpdateTimer(float timeT)
+        public void UpdateTimer(float timeT, bool roundTimeAccelerated)
         {
             TimerImage.fillAmount = timeT;
+            TimerImage.color = roundTimeAccelerated ? RoundTimerBarAcceleratedColor : RoundTimerBarNormalColor;
         }
 
         public void AddListenerToAnswerInputField(UnityAction<string> onWordSubmit)

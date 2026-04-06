@@ -6803,6 +6803,8 @@ MonoBehaviour:
   P2LettersCountUI: {fileID: 8630711658828380498}
   CurrentPromptText: {fileID: 7555887599330115756}
   TimerImage: {fileID: 4836763533619062475}
+  RoundTimerBarNormalColor: {r: 0.52156866, g: 0.52156866, b: 0.52156866, a: 1}
+  RoundTimerBarAcceleratedColor: {r: 1, g: 0.45, b: 0.2, a: 1}
   AnswerInputField: {fileID: 1778308215413481034}
   InvalidLettersText: {fileID: 4863777207169159193}
   ResolutionInvalidLettersText: {fileID: 0}

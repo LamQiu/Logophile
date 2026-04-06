@@ -126,9 +126,9 @@ namespace UI
             GameScreenUI.UpdateCurrentPrompt(GetTextWithTransparentColor(prompt.ToLower()));
         }
 
-        public void UpdateGameScreenTimer(float timeT)
+        public void UpdateGameScreenTimer(float timeT, bool roundTimeAccelerated)
         {
-            GameScreenUI.UpdateTimer(timeT);
+            GameScreenUI.UpdateTimer(timeT, roundTimeAccelerated);
         }
 
         public void AddListenerToAnswerInputField(UnityAction<string> onWordSubmit)
