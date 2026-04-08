@@ -43,6 +43,15 @@ public class RoundManager : NetworkBehaviour
 
     private bool m_isGameEnd = false;
 
+    // Clash
+    public int ClashDamage = 5;
+    public float ClashAnnouncementDurationInSeconds = 2f;
+    public float ClashTimeLimitInSeconds = 10f;
+    public NetworkVariable<bool> IsClashPhase = new NetworkVariable<bool>();
+    private string m_clashWord = "";
+    private bool m_clashResolved = false;
+    private float m_clashTimeRemaining;
+
     private const string k_invalidAnswerResolutionScreenText = "[ unidentified answer ]";
 
     private void Start()
@@ -104,10 +113,13 @@ public class RoundManager : NetworkBehaviour
             RoundTimeRemainingInSeconds.Value = RoundTimeLimitInSeconds;
             ResolutionTimeRemainingInSeconds.Value = ResolutionTimeLimitInSeconds;
             IsResolutionPhase.Value = false;
+            IsClashPhase.Value = false;
             AnyPlayerSubmittedThisRound.Value = false;
             m_confirmedResolutionClients.Clear();
             m_submittedAnswerClients.Clear();
             m_isGameEnd = false;
+            m_clashWord = "";
+            m_clashResolved = false;
         }
 
         Debug.Log("RoundManager has been reset.");
@@ -120,6 +132,12 @@ public class RoundManager : NetworkBehaviour
         {
             m_isToBanLetter = !m_isToBanLetter;
             UIManager.Instance.IsNotToBanLetterIcon.SetActive(!m_isToBanLetter);
+        }
+
+        if (IsClashPhase.Value && !m_isGameEnd)
+        {
+            HandleClashPhase();
+            return;
         }
 
         if (IsResolutionPhase.Value && !m_isGameEnd)
@@ -196,6 +214,22 @@ public class RoundManager : NetworkBehaviour
         }
     }
 
+    private void HandleClashPhase()
+    {
+        if (!_started) return;
+        if (!IsServer) return;
+
+        m_clashTimeRemaining -= Time.deltaTime;
+
+        if (m_clashTimeRemaining < 0 && !m_clashResolved)
+        {
+            // Time ran out with no winner — no damage, end clash
+            m_clashResolved = true;
+            EndClashPhaseClientRpc(ulong.MaxValue, 0);
+            StartCoroutine(DelayEndClashPhase());
+        }
+    }
+
     private IEnumerator DelayEnterNextRound()
     {
         yield return new WaitForSeconds(0.1f);
@@ -262,6 +296,19 @@ public class RoundManager : NetworkBehaviour
             clientAnswer = String.IsNullOrEmpty(client.Answer) ? "" :
                 client.AnswerCheckedValid.Value ? client.Answer : k_invalidAnswerResolutionScreenText;
 
+            // Clash detection: both valid and same word
+            bool bothValid = host.AnswerCheckedValid.Value && client.AnswerCheckedValid.Value;
+            bool sameWord = bothValid &&
+                            !string.IsNullOrEmpty(host.Answer) &&
+                            string.Equals(host.Answer.Trim(), client.Answer.Trim(), StringComparison.OrdinalIgnoreCase);
+
+            if (sameWord)
+            {
+                m_clashWord = host.Answer.Trim().ToLower();
+                EnterClashPhase();
+                return;
+            }
+
             int hostScore = host.AnswerCheckedValid.Value ? host.LetterCount.Value : 0;
             int clientScore = client.AnswerCheckedValid.Value ? client.LetterCount.Value : 0;
 
@@ -275,9 +322,6 @@ public class RoundManager : NetworkBehaviour
             {
                 host.CurrentHp.Value += difference;
             }
-
-            //host.CurrentHp.Value += hostScore;
-            //client.CurrentHp.Value += clientScore;
 
             StartCoroutine(DelayCheckWinStateNUpdateScoreUI(host, client));
         }
@@ -355,6 +399,124 @@ public class RoundManager : NetworkBehaviour
 
         if (m_submittedAnswerClients.Count >= 2)
             EnterResolutionPhase();
+    }
+
+    // ============================================================
+    // Clash Phase
+    // ============================================================
+    private void EnterClashPhase()
+    {
+        m_clashResolved = false;
+        m_clashTimeRemaining = ClashAnnouncementDurationInSeconds + ClashTimeLimitInSeconds;
+        IsClashPhase.Value = true;
+        m_submittedAnswerClients.Clear();
+
+        EnterClashPhaseClientRpc(m_clashWord);
+        StartCoroutine(ClashAnnouncementToTypingTransition());
+    }
+
+    private IEnumerator ClashAnnouncementToTypingTransition()
+    {
+        yield return new WaitForSeconds(ClashAnnouncementDurationInSeconds);
+        if (IsClashPhase.Value)
+        {
+            EnterClashTypingClientRpc(m_clashWord);
+            m_clashTimeRemaining = ClashTimeLimitInSeconds;
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void SubmitClashAnswerServerRpc(ulong clientId, string answer)
+    {
+        if (!IsClashPhase.Value || m_clashResolved) return;
+
+        if (!string.Equals(answer.Trim(), m_clashWord, StringComparison.OrdinalIgnoreCase)) return;
+
+        m_clashResolved = true;
+        ulong loserId = clientId == 0 ? 1UL : 0UL;
+
+        if (FindAnyObjectByType<PlayerManager>() is PlayerManager pm)
+        {
+            Client loser = pm.GetClient(loserId);
+            if (loser != null)
+            {
+                loser.CurrentHp.Value -= ClashDamage;
+            }
+
+            Client host = pm.GetHost();
+            Client client = pm.GetClient(1);
+            StartCoroutine(DelayCheckWinStateNUpdateScoreUI(host, client));
+        }
+
+        EndClashPhaseClientRpc(clientId, ClashDamage);
+        StartCoroutine(DelayEndClashPhase());
+    }
+
+    private IEnumerator DelayEndClashPhase()
+    {
+        yield return new WaitForSeconds(0.1f);
+        EndClashPhase();
+    }
+
+    private void EndClashPhase()
+    {
+        IsClashPhase.Value = false;
+        m_clashWord = "";
+        m_clashResolved = false;
+
+        // Continue to resolution display
+        if (FindAnyObjectByType<PlayerManager>() is PlayerManager pm)
+        {
+            Client host = pm.GetHost();
+            Client client = pm.GetClient(1);
+
+            string hostAnswer = String.IsNullOrEmpty(host.Answer) ? "" :
+                host.AnswerCheckedValid.Value ? host.Answer : k_invalidAnswerResolutionScreenText;
+            string clientAnswer = String.IsNullOrEmpty(client.Answer) ? "" :
+                client.AnswerCheckedValid.Value ? client.Answer : k_invalidAnswerResolutionScreenText;
+
+            // Ban Letter
+            if (m_currentRoundIndex % BanLetterAtStartOfResolutionPhaseOfRound == 0)
+            {
+                BanLetter();
+            }
+
+            EnterResolutionPhaseClientRpc(hostAnswer, clientAnswer);
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void EnterClashPhaseClientRpc(string clashedWord)
+    {
+        UIManager.Instance.EnterClashAnnouncementScreen(clashedWord);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void EnterClashTypingClientRpc(string clashedWord)
+    {
+        foreach (var c in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
+        {
+            if (c.IsOwner)
+            {
+                c.OnEnterClashTypingPhase(clashedWord);
+            }
+        }
+
+        UIManager.Instance.EnterClashTypingScreen(clashedWord);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void EndClashPhaseClientRpc(ulong winnerId, int damage)
+    {
+        foreach (var c in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
+        {
+            if (c.IsOwner)
+            {
+                c.OnEndClashPhase();
+            }
+        }
+
+        UIManager.Instance.ExitClashScreen();
     }
 
     private void BanLetter()
