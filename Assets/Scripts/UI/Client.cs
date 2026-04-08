@@ -228,6 +228,16 @@ public class Client : NetworkBehaviour
         }
     }
 
+    public void OnEnterClashTypingPhase(string word)
+    {
+        m_answerCheckedValid = false;
+    }
+
+    public void OnEndClashPhase()
+    {
+        m_answerCheckedValid = false;
+    }
+
     public void OnEnterNextRound()
     {
         if (m_otherClient == null)
@@ -296,7 +306,14 @@ public class Client : NetworkBehaviour
 
         if (!m_answerCheckedValid && Keyboard.current.enterKey.wasPressedThisFrame)
         {
-            if (!_roundManager.IsResolutionPhase.Value)
+            if (_roundManager.IsClashPhase.Value)
+            {
+                string clashAnswer = UIManager.Instance.ClashInputField.text;
+                _roundManager.SubmitClashAnswerServerRpc(OwnerClientId, clashAnswer);
+                m_answerCheckedValid = true;
+                UIManager.Instance.DisableClashInput();
+            }
+            else if (!_roundManager.IsResolutionPhase.Value)
             {
                 if (!TrySubmitAnswer())
                 {

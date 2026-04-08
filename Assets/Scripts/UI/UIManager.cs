@@ -17,6 +17,7 @@ namespace UI
         [SerializeField] private GameScreenUI GameScreenUI;
         [SerializeField] private ResolutionScreenUI ResolutionScreenUI;
         [SerializeField] private WinScreenUI WinScreenUI;
+        [SerializeField] private ClashScreenUI ClashScreenUI;
         public GameObject IsNotToBanLetterIcon;
         public string MainMenuCommandInputFieldEnterPlayKey = "play";
         
@@ -42,8 +43,9 @@ namespace UI
             WaitingScreenUI.Hide();
             GameScreenUI.Hide();
             ResolutionScreenUI.Hide();
+            ClashScreenUI.Hide();
             WinScreenUI.Hide();
-            
+
             ResolutionScreenUI.Reset();
         }
 
@@ -78,6 +80,7 @@ namespace UI
             ConnectionScreenUI.Hide();
             WaitingScreenUI.Hide();
             ResolutionScreenUI.Hide();
+            ClashScreenUI.Hide();
             WinScreenUI.Hide();
             GameScreenUI.Show();
             GameScreenUI.ClearWordInputField();
@@ -86,6 +89,7 @@ namespace UI
         public void EnterResolutionScreen()
         {
             GameScreenUI.Hide();
+            ClashScreenUI.Hide();
             ResolutionScreenUI.Show();
         }
 
@@ -211,6 +215,34 @@ namespace UI
                 UpdatePlayer2FillImage(thisClientScore / maxScore, thisClientScore);
                 UpdatePlayer1FillImage(otherClientScore / maxScore, otherClientScore);
             }
+        }
+
+        #endregion
+
+        #region ClashScreen UI
+
+        public TMP_InputField ClashInputField => ClashScreenUI.ClashInputField;
+
+        public void EnterClashAnnouncementScreen(string word)
+        {
+            GameScreenUI.Hide();
+            ResolutionScreenUI.Hide();
+            ClashScreenUI.ShowAnnouncement(word);
+        }
+
+        public void EnterClashTypingScreen(string word)
+        {
+            ClashScreenUI.ShowTyping(word);
+        }
+
+        public void ExitClashScreen()
+        {
+            ClashScreenUI.Hide();
+        }
+
+        public void DisableClashInput()
+        {
+            ClashScreenUI.DisableInput();
         }
 
         #endregion
