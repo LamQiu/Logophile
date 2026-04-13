@@ -13,6 +13,13 @@ public class PromptGenerator : NetworkBehaviour
     private PromptType m_lastPromptType = PromptType.None;
     [SerializeField] private Prompt[] prompts;
 
+    private List<PromptEntryData> _entryPrompts = new List<PromptEntryData>();
+
+    private void Awake()
+    {
+        _entryPrompts = PromptEntryJsonLoader.Load();
+    }
+
     public List<Prompt> UsesPrompts
     {
         get => usedPrompts;
@@ -48,7 +55,11 @@ public class PromptGenerator : NetworkBehaviour
         var randomPrompt = unusedPrompts[Random.Range(0, unusedPrompts.Count)];
         if (randomize)
         {
-            randomPrompt = new Prompt(RandomTypeExceptNone(), RandomContentExceptNone());
+            var newType = RandomTypeExceptNone();
+            if (newType == PromptType.Entry)
+                randomPrompt = RandomEntryPrompt();
+            else
+                randomPrompt = new Prompt(newType, RandomContentExceptNone());
         }
 
         CurrentPrompt.Value = randomPrompt;
@@ -57,12 +68,34 @@ public class PromptGenerator : NetworkBehaviour
 
     PromptType RandomTypeExceptNone()
     {
-        var all = System.Enum.GetValues(typeof(PromptType)).Cast<PromptType>().ToList();
-        all.Remove(PromptType.None);
+        var all = System.Enum.GetValues(typeof(PromptType)).Cast<PromptType>()
+            .Where(t => t != PromptType.None)
+            .ToList();
+
+        if (_entryPrompts.Count == 0)
+            all.Remove(PromptType.Entry);
+
         all.Remove(m_lastPromptType);
+
+        if (all.Count == 0)
+        {
+            all = System.Enum.GetValues(typeof(PromptType)).Cast<PromptType>()
+                .Where(t => t != PromptType.None)
+                .ToList();
+            if (_entryPrompts.Count == 0)
+                all.Remove(PromptType.Entry);
+        }
+
         var result = all[Random.Range(0, all.Count)];
         m_lastPromptType = result;
         return result;
+    }
+
+    Prompt RandomEntryPrompt()
+    {
+        var idx = Random.Range(0, _entryPrompts.Count);
+        var entry = _entryPrompts[idx];
+        return new Prompt(PromptType.Entry, idx, entry.Question);
     }
 
     PromptContent RandomContentExceptNone()
@@ -106,7 +139,8 @@ public class PromptGenerator : NetworkBehaviour
         None,
         StartWith,
         Contains,
-        EndWith
+        EndWith,
+        Entry
     }
 
     public enum PromptContent
@@ -142,21 +176,41 @@ public class PromptGenerator : NetworkBehaviour
     {
         public PromptGenerator.PromptType type;
         public PromptGenerator.PromptContent content;
+        public int entryIndex;
+        public string questionText;
 
         public Prompt(PromptGenerator.PromptType t, PromptGenerator.PromptContent c)
         {
             type = t;
             content = c;
+            entryIndex = -1;
+            questionText = string.Empty;
+        }
+
+        public Prompt(PromptGenerator.PromptType t, int index, string question)
+        {
+            type = t;
+            content = PromptContent.None;
+            entryIndex = index;
+            questionText = question ?? string.Empty;
         }
 
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
             serializer.SerializeValue(ref type);
             serializer.SerializeValue(ref content);
+            serializer.SerializeValue(ref entryIndex);
+            // Netcode WriteValueSafe throws if string is null
+            var q = questionText ?? string.Empty;
+            serializer.SerializeValue(ref q);
+            questionText = q;
         }
 
         public override string ToString()
         {
+            if (type == PromptType.Entry)
+                return questionText ?? "";
+
             return Regex.Replace(type.ToString(), "([a-z])([A-Z])", "$1 $2")
                    + " " + " \"" + content + "\"";
         }

@@ -4616,6 +4616,14 @@ PrefabInstance:
       propertyPath: m_Volume
       value: 0.4
       objectReference: {fileID: 0}
+    - target: {fileID: 8829587165023951325, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: prompts.Array.data[0].entryIndex
+      value: -1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8829587165023951325, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: prompts.Array.data[1].entryIndex
+      value: -1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
