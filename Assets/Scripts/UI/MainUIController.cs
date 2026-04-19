@@ -1,9 +1,17 @@
+using System.Collections;
 using DG.Tweening;
 using UnityEngine;
 using UnityEngine.UI;
 
 public class MainUIController : MonoBehaviour
 {
+    [Header("Intro Sequence")]
+    [SerializeField] TypewriterEffect _titleTypewriter;
+    [SerializeField] TypewriterEffect _hintTypewriter;
+    [SerializeField] HintCycler _hintCycler;
+    [SerializeField] float _introGapSeconds = 0.3f;
+    [SerializeField] bool _playIntroOnStart = true;
+
     [Header("CMYK Bar - References")]
     [SerializeField] RectTransform _cmykBar;
     [SerializeField] LayoutElement _layoutM;
@@ -37,6 +45,32 @@ public class MainUIController : MonoBehaviour
         _initYWidth = _layoutY.preferredWidth;
         _initCWidth = _layoutC.preferredWidth;
         _initSkew = _graphicM.Skew;
+    }
+
+    void Start()
+    {
+        if (_playIntroOnStart) PlayIntro();
+    }
+
+    [ContextMenu("Play Intro")]
+    public void PlayIntro()
+    {
+        StopAllCoroutines();
+        StartCoroutine(IntroRoutine());
+    }
+
+    IEnumerator IntroRoutine()
+    {
+        Debug.Log($"[MainUI] IntroRoutine begin. title={_titleTypewriter != null}, hint={_hintTypewriter != null}, cycler={_hintCycler != null}", this);
+        _titleTypewriter.Play();
+        yield return new WaitUntil(() => !_titleTypewriter.IsPlaying);
+        Debug.Log("[MainUI] title done", this);
+        yield return new WaitForSeconds(_introGapSeconds);
+        _hintTypewriter.Play();
+        yield return new WaitUntil(() => !_hintTypewriter.IsPlaying);
+        Debug.Log("[MainUI] hint done, starting cycler", this);
+        if (_hintCycler != null) _hintCycler.StartCycling();
+        else Debug.LogWarning("[MainUI] _hintCycler is null!", this);
     }
 
     [ContextMenu("Transition To Tutorial")]
