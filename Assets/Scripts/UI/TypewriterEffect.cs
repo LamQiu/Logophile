@@ -59,6 +59,7 @@ public class TypewriterEffect : MonoBehaviour
 
     IEnumerator Run()
     {
+        _text.maxVisibleCharacters = int.MaxValue;
         _text.ForceMeshUpdate();
         int total = _text.textInfo.characterCount;
         _text.maxVisibleCharacters = 0;

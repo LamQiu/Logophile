@@ -22,7 +22,6 @@ public class HintCycler : MonoBehaviour
 
     public void StartCycling()
     {
-        Debug.Log($"[HintCycler] StartCycling, hints={_hints?.Length ?? 0}, typewriter={_typewriter != null}", this);
         StopCycling();
         _running = StartCoroutine(CycleRoutine());
     }
