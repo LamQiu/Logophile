@@ -12,6 +12,8 @@ public class MainUIController : MonoBehaviour
         public RectTransform rect;
         public Vector2 tutorialAnchoredPos;
         public Vector2 tutorialSizeDelta;
+        public Vector2 roomIdAnchoredPos;
+        public Vector2 roomIdSizeDelta;
         [HideInInspector] public Vector2 initialAnchoredPos;
         [HideInInspector] public Vector2 initialSizeDelta;
     }
@@ -64,6 +66,30 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _pressSpaceFadeDuration = 0.3f;
     [SerializeField] float _tutorialTitleDelay = 0.4f;
     [SerializeField] float _pressSpaceGapAfterTitle = 0.2f;
+
+    [Header("Room ID Transition - Fade Out")]
+    [SerializeField] CanvasGroup[] _roomIdFadeOutGroups;
+
+    [Header("Room ID Transition - CMYK Bar")]
+    [SerializeField] Vector2 _barRoomIdAnchoredPos;
+    [SerializeField] Vector2 _barRoomIdSize;
+    [SerializeField] float _roomIdSkew = 60f;
+    [SerializeField] float _roomIdMWidth;
+    [SerializeField] float _roomIdYWidth;
+    [SerializeField] float _roomIdCWidth;
+
+    [Header("Room ID Transition - Input Field")]
+    [SerializeField] Vector2 _inputFieldRoomIdSize;
+    [SerializeField] TMP_Text _inputFieldPlaceholderText;
+    [SerializeField] string _roomIdPlaceholder = "create / join";
+
+    [Header("Room ID Transition - Fade In")]
+    [SerializeField] TypewriterEffect _roomIdTitleTypewriter;
+    [SerializeField] CanvasGroup _roomIdTitleGroup;
+    [SerializeField] TypewriterEffect _roomIdHintTypewriter;
+    [SerializeField] CanvasGroup _roomIdHintGroup;
+    [SerializeField] float _roomIdTitleDelay = 0.4f;
+    [SerializeField] float _roomIdHintGapAfterTitle = 0.2f;
 
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
@@ -193,6 +219,86 @@ public class MainUIController : MonoBehaviour
         StartCoroutine(TutorialRevealRoutine());
     }
 
+    [ContextMenu("Transition To Room ID")]
+    public void TransitionToRoomId()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        if (_hintCycler != null) _hintCycler.StopCycling();
+
+        var seq = DOTween.Sequence().SetId(this);
+
+        // Fade out any lingering intro/tutorial elements
+        if (_roomIdFadeOutGroups != null)
+        {
+            foreach (var cg in _roomIdFadeOutGroups)
+            {
+                if (cg == null) continue;
+                seq.Join(cg.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+            }
+        }
+
+        // CMYK bar: back to parallelogram with room-id pos/size and stripe widths
+        seq.Join(TweenSkew(_graphicM, _roomIdSkew));
+        seq.Join(TweenSkew(_graphicY, _roomIdSkew));
+        seq.Join(TweenSkew(_graphicC, _roomIdSkew));
+        seq.Join(TweenSkew(_graphicK, _roomIdSkew));
+        seq.Join(TweenPreferredWidth(_layoutM, _roomIdMWidth));
+        seq.Join(TweenPreferredWidth(_layoutY, _roomIdYWidth));
+        seq.Join(TweenPreferredWidth(_layoutC, _roomIdCWidth));
+        seq.Join(_cmykBar.DOAnchorPos(_barRoomIdAnchoredPos, _duration).SetEase(_ease));
+        seq.Join(_cmykBar.DOSizeDelta(_barRoomIdSize, _duration).SetEase(_ease));
+
+        // Input field: re-enable editing, swap placeholder, fade content in, resize
+        if (_inputField != null)
+        {
+            _inputField.readOnly = false;
+            _inputField.text = string.Empty;
+        }
+        if (_inputFieldPlaceholderText != null)
+            _inputFieldPlaceholderText.text = _roomIdPlaceholder;
+        if (_inputFieldContentGroup != null)
+        {
+            _inputFieldContentGroup.alpha = 0f;
+            seq.Join(_inputFieldContentGroup.DOFade(1f, _duration).SetEase(_ease));
+        }
+        if (_inputFieldRect != null)
+            seq.Join(_inputFieldRect.DOSizeDelta(_inputFieldRoomIdSize, _duration).SetEase(_ease));
+
+        // Decorative lines to room-id targets
+        if (_decorativeLines != null)
+        {
+            foreach (var l in _decorativeLines)
+            {
+                if (l?.rect == null) continue;
+                seq.Join(l.rect.DOAnchorPos(l.roomIdAnchoredPos, _duration).SetEase(_ease));
+                seq.Join(l.rect.DOSizeDelta(l.roomIdSizeDelta, _duration).SetEase(_ease));
+            }
+        }
+
+        // Room-id title + hint typewriter reveal
+        if (_roomIdTitleTypewriter != null) _roomIdTitleTypewriter.Hide();
+        if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Hide();
+        if (_roomIdTitleGroup != null) _roomIdTitleGroup.alpha = 0f;
+        if (_roomIdHintGroup != null) _roomIdHintGroup.alpha = 0f;
+        StartCoroutine(RoomIdRevealRoutine());
+    }
+
+    IEnumerator RoomIdRevealRoutine()
+    {
+        yield return new WaitForSeconds(_roomIdTitleDelay);
+        if (_roomIdTitleGroup != null) _roomIdTitleGroup.alpha = 1f;
+        if (_roomIdTitleTypewriter != null)
+        {
+            _roomIdTitleTypewriter.Play();
+            yield return new WaitUntil(() => !_roomIdTitleTypewriter.IsPlaying);
+        }
+        yield return new WaitForSeconds(_roomIdHintGapAfterTitle);
+        if (_roomIdHintGroup != null) _roomIdHintGroup.alpha = 1f;
+        if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Play();
+    }
+
     IEnumerator TutorialRevealRoutine()
     {
         yield return new WaitForSeconds(_tutorialTitleDelay);
@@ -242,6 +348,11 @@ public class MainUIController : MonoBehaviour
         if (_tutorialTitleGroup != null) _tutorialTitleGroup.alpha = 0f;
         if (_tutorialTitleTypewriter != null) _tutorialTitleTypewriter.Hide();
         if (_pressSpaceGroup != null) _pressSpaceGroup.alpha = 0f;
+
+        if (_roomIdTitleGroup != null) _roomIdTitleGroup.alpha = 0f;
+        if (_roomIdHintGroup != null) _roomIdHintGroup.alpha = 0f;
+        if (_roomIdTitleTypewriter != null) _roomIdTitleTypewriter.Hide();
+        if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Hide();
     }
 
     [ContextMenu("Capture Current As Tutorial Target")]
@@ -260,6 +371,31 @@ public class MainUIController : MonoBehaviour
             }
         }
         Debug.Log("Captured tutorial targets (bar, input height, decorative lines)");
+#if UNITY_EDITOR
+        UnityEditor.EditorUtility.SetDirty(this);
+#endif
+    }
+
+    [ContextMenu("Capture Current As Room ID Target")]
+    void CaptureCurrentAsRoomIdTarget()
+    {
+        _barRoomIdAnchoredPos = _cmykBar.anchoredPosition;
+        _barRoomIdSize = _cmykBar.sizeDelta;
+        _roomIdSkew = _graphicM.Skew;
+        _roomIdMWidth = _layoutM.preferredWidth;
+        _roomIdYWidth = _layoutY.preferredWidth;
+        _roomIdCWidth = _layoutC.preferredWidth;
+        if (_inputFieldRect != null) _inputFieldRoomIdSize = _inputFieldRect.sizeDelta;
+        if (_decorativeLines != null)
+        {
+            foreach (var l in _decorativeLines)
+            {
+                if (l?.rect == null) continue;
+                l.roomIdAnchoredPos = l.rect.anchoredPosition;
+                l.roomIdSizeDelta = l.rect.sizeDelta;
+            }
+        }
+        Debug.Log("Captured room id targets (bar, stripe widths, input size, decorative lines)");
 #if UNITY_EDITOR
         UnityEditor.EditorUtility.SetDirty(this);
 #endif
