@@ -59,10 +59,10 @@ namespace UI
             ConnectionScreenUI.Show();
         }
 
-        public void EnterWaitingScreen(string roomID)
+        public void EnterWaitingScreen(string roomName, string connectionCode)
         {
             ConnectionScreenUI.Hide();
-            WaitingScreenUI.Show(roomID);
+            WaitingScreenUI.Show(roomName, connectionCode);
         }
 
         public void EnterGameScreen()
