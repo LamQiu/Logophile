@@ -7,8 +7,10 @@ public class PlayerIcon : MonoBehaviour
     public enum Slot { P1, P2 }
 
     [SerializeField] Slot _slot = Slot.P1;
+    [SerializeField] bool _isLocal;
     [SerializeField] BoxFrameGraphic _box;
     [SerializeField] TMP_Text _idText;
+    [SerializeField] GameObject _youIndicator;
     [SerializeField] Color _p1Color = new Color(1f, 0.92f, 0.16f);   // yellow
     [SerializeField] Color _p2Color = new Color(0.32f, 0.74f, 1f);   // blue
 
@@ -19,6 +21,17 @@ public class PlayerIcon : MonoBehaviour
         {
             if (_slot == value) return;
             _slot = value;
+            Apply();
+        }
+    }
+
+    public bool IsLocal
+    {
+        get => _isLocal;
+        set
+        {
+            if (_isLocal == value) return;
+            _isLocal = value;
             Apply();
         }
     }
@@ -35,6 +48,7 @@ public class PlayerIcon : MonoBehaviour
             _idText.text = label;
             _idText.color = c;
         }
+        if (_youIndicator != null) _youIndicator.SetActive(_isLocal);
     }
 
 #if UNITY_EDITOR
