@@ -18,7 +18,7 @@ namespace UI
         public void Show(string roomName, string connectionCode)
         {
             _connectionCode = connectionCode;
-            ROOMIDText.text = $"room: <color=white>{roomName}</color>  code: <color=white>{connectionCode}</color>";
+            ROOMIDText.text = $"room: <color=white>{roomName}</color>";
             gameObject.SetActive(true);
         }
 
