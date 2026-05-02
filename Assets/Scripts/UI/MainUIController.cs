@@ -101,15 +101,12 @@ public class MainUIController : MonoBehaviour
 
     [Header("Waiting Transition - Black Panel")]
     [SerializeField] RectTransform _waitingPanel;
+    [SerializeField] Vector2 _waitingPanelStartAnchoredPos;
     [SerializeField] Vector2 _waitingPanelStartSize;
     [SerializeField] Vector2 _waitingPanelTargetSize;
-
-    [Header("Waiting Transition - Divider")]
-    [SerializeField] RectTransform _waitingDivider;
-    [SerializeField] float _waitingDividerFullWidth;
-    [SerializeField] float _waitingDividerThickness = 4f;
-    [SerializeField] float _waitingDividerDelay = 0.6f;
-    [SerializeField] float _waitingDividerDuration = 0.4f;
+    [SerializeField] float _waitingPanelRevealAmount = 100f;
+    [SerializeField] float _waitingPanelRevealDelay = 0.15f;
+    [SerializeField] float _waitingPanelRevealDuration = 0.3f;
 
     [Header("Waiting Transition - Display Content")]
     [SerializeField] TypewriterEffect _waitingTitleTypewriter;
@@ -120,7 +117,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] CanvasGroup _waitingHintGroup;
     [SerializeField] CanvasGroup _waitingP1Group;
     [SerializeField] CanvasGroup _waitingP2Group;
-    [SerializeField] float _waitingContentGapAfterDivider = 0.1f;
+    [SerializeField] float _waitingContentGapAfterReveal = 0.1f;
     [SerializeField] float _waitingContentStagger = 0.1f;
     [SerializeField] float _waitingContentFadeDuration = 0.3f;
 
@@ -362,13 +359,12 @@ public class MainUIController : MonoBehaviour
         // Black panel: starts at the InputField footprint, grows up to target size
         if (_waitingPanel != null)
         {
+            _waitingPanel.anchoredPosition = _waitingPanelStartAnchoredPos;
             _waitingPanel.sizeDelta = _waitingPanelStartSize;
             seq.Join(_waitingPanel.DOSizeDelta(_waitingPanelTargetSize, _duration).SetEase(_ease));
         }
 
-        // Reset divider + waiting content to invisible/zero starting state
-        if (_waitingDivider != null)
-            _waitingDivider.sizeDelta = new Vector2(_waitingDividerFullWidth, 0f);
+        // Reset waiting content to invisible starting state
         if (_waitingTitleTypewriter != null) _waitingTitleTypewriter.Hide();
         if (_waitingRoomIdTypewriter != null) _waitingRoomIdTypewriter.Hide();
         if (_waitingHintTypewriter != null) _waitingHintTypewriter.Hide();
@@ -383,18 +379,24 @@ public class MainUIController : MonoBehaviour
 
     IEnumerator WaitingRevealRoutine()
     {
-        // Wait for the panel to be near-expanded before growing the divider
-        yield return new WaitForSeconds(_waitingDividerDelay);
+        // Wait for the grow phase to finish before retreating the panel's bottom
+        yield return new WaitForSeconds(_duration + _waitingPanelRevealDelay);
 
-        if (_waitingDivider != null)
+        // Phase 2: panel bottom retreats upward, revealing the InputField
+        // strip underneath. Top edge stays put: anchoredPos.y += amount, sizeDelta.y -= amount.
+        // (Assumes panel pivot.y = 0 / bottom.)
+        if (_waitingPanel != null)
         {
-            _waitingDivider
-                .DOSizeDelta(new Vector2(_waitingDividerFullWidth, _waitingDividerThickness), _waitingDividerDuration)
-                .SetEase(_ease)
-                .SetId(this);
+            var basePos = _waitingPanel.anchoredPosition;
+            var revealedPos = basePos + new Vector2(0f, _waitingPanelRevealAmount);
+            var revealedSize = new Vector2(
+                _waitingPanelTargetSize.x,
+                _waitingPanelTargetSize.y - _waitingPanelRevealAmount);
+            _waitingPanel.DOAnchorPos(revealedPos, _waitingPanelRevealDuration).SetEase(_ease).SetId(this);
+            _waitingPanel.DOSizeDelta(revealedSize, _waitingPanelRevealDuration).SetEase(_ease).SetId(this);
         }
 
-        yield return new WaitForSeconds(_waitingDividerDuration + _waitingContentGapAfterDivider);
+        yield return new WaitForSeconds(_waitingPanelRevealDuration + _waitingContentGapAfterReveal);
 
         // Typewriter sequence: title → room id → hint, with P1/P2 fading in mid-sequence
         // 1) "waiting.." typewriter
@@ -513,9 +515,11 @@ public class MainUIController : MonoBehaviour
         if (_roomIdTitleTypewriter != null) _roomIdTitleTypewriter.Hide();
         if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Hide();
 
-        if (_waitingPanel != null) _waitingPanel.sizeDelta = _waitingPanelStartSize;
-        if (_waitingDivider != null)
-            _waitingDivider.sizeDelta = new Vector2(_waitingDividerFullWidth, 0f);
+        if (_waitingPanel != null)
+        {
+            _waitingPanel.anchoredPosition = _waitingPanelStartAnchoredPos;
+            _waitingPanel.sizeDelta = _waitingPanelStartSize;
+        }
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
         if (_waitingTitleTypewriter != null) _waitingTitleTypewriter.Hide();
         if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
@@ -577,11 +581,6 @@ public class MainUIController : MonoBehaviour
     {
         if (_waitingPanel != null)
             _waitingPanelTargetSize = _waitingPanel.sizeDelta;
-        if (_waitingDivider != null)
-        {
-            _waitingDividerFullWidth = _waitingDivider.sizeDelta.x;
-            _waitingDividerThickness = _waitingDivider.sizeDelta.y;
-        }
         if (_decorativeLines != null)
         {
             foreach (var l in _decorativeLines)
@@ -591,7 +590,7 @@ public class MainUIController : MonoBehaviour
                 l.waitingSizeDelta = l.rect.sizeDelta;
             }
         }
-        Debug.Log("Captured waiting targets (panel size, divider, decorative lines)");
+        Debug.Log("Captured waiting targets (panel size, decorative lines)");
     }
 
     [ContextMenu("Capture Current As Waiting Panel Start")]
@@ -599,8 +598,9 @@ public class MainUIController : MonoBehaviour
     {
         if (_waitingPanel != null)
         {
+            _waitingPanelStartAnchoredPos = _waitingPanel.anchoredPosition;
             _waitingPanelStartSize = _waitingPanel.sizeDelta;
-            Debug.Log($"Captured waiting panel start size: {_waitingPanelStartSize}");
+            Debug.Log($"Captured waiting panel start: pos {_waitingPanelStartAnchoredPos}, size {_waitingPanelStartSize}");
 #if UNITY_EDITOR
             UnityEditor.EditorUtility.SetDirty(this);
 #endif
