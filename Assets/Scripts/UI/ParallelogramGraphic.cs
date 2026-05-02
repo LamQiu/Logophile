@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 [RequireComponent(typeof(CanvasRenderer))]
-[AddComponentMenu("UI/Parallelogram")]
+[AddComponentMenu("Logophile UI/Parallelogram")]
 public class ParallelogramGraphic : MaskableGraphic
 {
     // Horizontal offset of the top edge relative to the bottom, in local pixels.

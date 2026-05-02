@@ -3,7 +3,7 @@ using TMPro;
 using UnityEngine;
 
 [RequireComponent(typeof(TMP_Text))]
-[AddComponentMenu("UI/Typewriter Effect")]
+[AddComponentMenu("Logophile UI/Typewriter Effect")]
 public class TypewriterEffect : MonoBehaviour
 {
     [SerializeField] float _charactersPerSecond = 30f;

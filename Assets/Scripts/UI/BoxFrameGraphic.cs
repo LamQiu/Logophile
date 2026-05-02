@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 [RequireComponent(typeof(CanvasRenderer))]
-[AddComponentMenu("UI/Box Frame")]
+[AddComponentMenu("Logophile UI/Box Frame")]
 public class BoxFrameGraphic : MaskableGraphic
 {
     [SerializeField, Min(0f)] float _thickness = 4f;
