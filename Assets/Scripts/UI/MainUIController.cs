@@ -423,15 +423,17 @@ public class MainUIController : MonoBehaviour
 
         yield return new WaitForSeconds(_waitingContentFadeDuration);
 
-        // Re-enable the (now small, bottom) input area for "ready" typing
+        // Show placeholder ("ready") in the bottom strip but disable typing —
+        // "ready" is captured elsewhere (key listener), the InputField is now
+        // purely a visual element.
         if (_inputFieldPlaceholderText != null)
             _inputFieldPlaceholderText.text = _waitingPlaceholder;
         if (_inputFieldContentGroup != null)
             _inputFieldContentGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
         if (_inputField != null)
         {
-            _inputField.readOnly = false;
-            _inputField.ActivateInputField();
+            _inputField.DeactivateInputField();
+            _inputField.enabled = false;
         }
     }
 
@@ -479,7 +481,7 @@ public class MainUIController : MonoBehaviour
         _graphicC.Skew = _initSkew;
         _graphicK.Skew = _initSkew;
 
-        if (_inputField != null) _inputField.readOnly = false;
+        if (_inputField != null) { _inputField.enabled = true; _inputField.readOnly = false; }
         if (_inputFieldRect != null) _inputFieldRect.sizeDelta = _initInputFieldSize;
         if (_inputFieldContentGroup != null) _inputFieldContentGroup.alpha = 1f;
 
