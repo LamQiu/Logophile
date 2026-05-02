@@ -14,6 +14,8 @@ public class MainUIController : MonoBehaviour
         public Vector2 tutorialSizeDelta;
         public Vector2 roomIdAnchoredPos;
         public Vector2 roomIdSizeDelta;
+        public Vector2 waitingAnchoredPos;
+        public Vector2 waitingSizeDelta;
         [HideInInspector] public Vector2 initialAnchoredPos;
         [HideInInspector] public Vector2 initialSizeDelta;
     }
@@ -90,6 +92,34 @@ public class MainUIController : MonoBehaviour
     [SerializeField] CanvasGroup _roomIdHintGroup;
     [SerializeField] float _roomIdTitleDelay = 0.4f;
     [SerializeField] float _roomIdHintGapAfterTitle = 0.2f;
+
+    [Header("Waiting Transition - Fade Out")]
+    [SerializeField] CanvasGroup[] _waitingFadeOutGroups;
+
+    [Header("Waiting Transition - InputField Expansion")]
+    [SerializeField] Vector2 _inputFieldWaitingAnchoredPos;
+    [SerializeField] Vector2 _inputFieldWaitingSize;
+    [SerializeField] string _waitingPlaceholder = "ready";
+
+    [Header("Waiting Transition - Divider")]
+    [SerializeField] RectTransform _waitingDivider;
+    [SerializeField] float _waitingDividerFullWidth;
+    [SerializeField] float _waitingDividerThickness = 4f;
+    [SerializeField] float _waitingDividerDelay = 0.6f;
+    [SerializeField] float _waitingDividerDuration = 0.4f;
+
+    [Header("Waiting Transition - Display Content")]
+    [SerializeField] TypewriterEffect _waitingTitleTypewriter;
+    [SerializeField] CanvasGroup _waitingTitleGroup;
+    [SerializeField] CanvasGroup _waitingRoomIdGroup;
+    [SerializeField] TMP_Text _waitingRoomIdText;
+    [SerializeField] CanvasGroup _waitingP1Group;
+    [SerializeField] CanvasGroup _waitingYouArrowGroup;
+    [SerializeField] CanvasGroup _waitingP2Group;
+    [SerializeField] CanvasGroup _waitingHintGroup;
+    [SerializeField] float _waitingContentGapAfterDivider = 0.1f;
+    [SerializeField] float _waitingContentStagger = 0.1f;
+    [SerializeField] float _waitingContentFadeDuration = 0.3f;
 
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
@@ -285,6 +315,126 @@ public class MainUIController : MonoBehaviour
         StartCoroutine(RoomIdRevealRoutine());
     }
 
+    [ContextMenu("Transition To Waiting")]
+    public void TransitionToWaiting()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        if (_hintCycler != null) _hintCycler.StopCycling();
+
+        var seq = DOTween.Sequence().SetId(this);
+
+        // Fade out RoomID title/hint, CMYK bar, and any other lingering elements
+        if (_waitingFadeOutGroups != null)
+        {
+            foreach (var cg in _waitingFadeOutGroups)
+            {
+                if (cg == null) continue;
+                seq.Join(cg.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+            }
+        }
+
+        // Decorative lines: move to waiting (top stacked) positions
+        if (_decorativeLines != null)
+        {
+            foreach (var l in _decorativeLines)
+            {
+                if (l?.rect == null) continue;
+                seq.Join(l.rect.DOAnchorPos(l.waitingAnchoredPos, _duration).SetEase(_ease));
+                seq.Join(l.rect.DOSizeDelta(l.waitingSizeDelta, _duration).SetEase(_ease));
+            }
+        }
+
+        // InputField: clear text, lock input, fade content out, expand to panel size
+        if (_inputField != null)
+        {
+            _inputField.DeactivateInputField();
+            _inputField.readOnly = true;
+            _inputField.text = string.Empty;
+        }
+        if (_inputFieldContentGroup != null)
+            seq.Join(_inputFieldContentGroup.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+        if (_inputFieldRect != null)
+        {
+            seq.Join(_inputFieldRect.DOAnchorPos(_inputFieldWaitingAnchoredPos, _duration).SetEase(_ease));
+            seq.Join(_inputFieldRect.DOSizeDelta(_inputFieldWaitingSize, _duration).SetEase(_ease));
+        }
+
+        // Reset divider + waiting content to invisible/zero starting state
+        if (_waitingDivider != null)
+            _waitingDivider.sizeDelta = new Vector2(_waitingDividerFullWidth, 0f);
+        if (_waitingTitleTypewriter != null) _waitingTitleTypewriter.Hide();
+        if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
+        if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
+        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
+        if (_waitingYouArrowGroup != null) _waitingYouArrowGroup.alpha = 0f;
+        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
+        if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
+
+        StartCoroutine(WaitingRevealRoutine());
+    }
+
+    IEnumerator WaitingRevealRoutine()
+    {
+        // Wait for the panel to be near-expanded before growing the divider
+        yield return new WaitForSeconds(_waitingDividerDelay);
+
+        if (_waitingDivider != null)
+        {
+            _waitingDivider
+                .DOSizeDelta(new Vector2(_waitingDividerFullWidth, _waitingDividerThickness), _waitingDividerDuration)
+                .SetEase(_ease)
+                .SetId(this);
+        }
+
+        yield return new WaitForSeconds(_waitingDividerDuration + _waitingContentGapAfterDivider);
+
+        // Stagger fade-in of display content
+        // 1) "waiting.." typewriter
+        if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 1f;
+        if (_waitingTitleTypewriter != null)
+        {
+            _waitingTitleTypewriter.Play();
+            yield return new WaitUntil(() => !_waitingTitleTypewriter.IsPlaying);
+        }
+        yield return new WaitForSeconds(_waitingContentStagger);
+
+        // 2) room id text
+        if (_waitingRoomIdGroup != null)
+            _waitingRoomIdGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        yield return new WaitForSeconds(_waitingContentStagger);
+
+        // 3) P1 box + "you" arrow (joined: "you" identifies P1)
+        if (_waitingP1Group != null)
+            _waitingP1Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        if (_waitingYouArrowGroup != null)
+            _waitingYouArrowGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        yield return new WaitForSeconds(_waitingContentStagger);
+
+        // 4) P2 box
+        if (_waitingP2Group != null)
+            _waitingP2Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        yield return new WaitForSeconds(_waitingContentStagger);
+
+        // 5) "type ready to ready up" hint
+        if (_waitingHintGroup != null)
+            _waitingHintGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+
+        yield return new WaitForSeconds(_waitingContentFadeDuration);
+
+        // Re-enable the (now small, bottom) input area for "ready" typing
+        if (_inputFieldPlaceholderText != null)
+            _inputFieldPlaceholderText.text = _waitingPlaceholder;
+        if (_inputFieldContentGroup != null)
+            _inputFieldContentGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        if (_inputField != null)
+        {
+            _inputField.readOnly = false;
+            _inputField.ActivateInputField();
+        }
+    }
+
     IEnumerator RoomIdRevealRoutine()
     {
         yield return new WaitForSeconds(_roomIdTitleDelay);
@@ -353,6 +503,16 @@ public class MainUIController : MonoBehaviour
         if (_roomIdHintGroup != null) _roomIdHintGroup.alpha = 0f;
         if (_roomIdTitleTypewriter != null) _roomIdTitleTypewriter.Hide();
         if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Hide();
+
+        if (_waitingDivider != null)
+            _waitingDivider.sizeDelta = new Vector2(_waitingDividerFullWidth, 0f);
+        if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
+        if (_waitingTitleTypewriter != null) _waitingTitleTypewriter.Hide();
+        if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
+        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
+        if (_waitingYouArrowGroup != null) _waitingYouArrowGroup.alpha = 0f;
+        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
+        if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
     }
 
     [ContextMenu("Capture Current As Tutorial Target")]
@@ -396,6 +556,34 @@ public class MainUIController : MonoBehaviour
             }
         }
         Debug.Log("Captured room id targets (bar, stripe widths, input size, decorative lines)");
+#if UNITY_EDITOR
+        UnityEditor.EditorUtility.SetDirty(this);
+#endif
+    }
+
+    [ContextMenu("Capture Current As Waiting Target")]
+    void CaptureCurrentAsWaitingTarget()
+    {
+        if (_inputFieldRect != null)
+        {
+            _inputFieldWaitingAnchoredPos = _inputFieldRect.anchoredPosition;
+            _inputFieldWaitingSize = _inputFieldRect.sizeDelta;
+        }
+        if (_waitingDivider != null)
+        {
+            _waitingDividerFullWidth = _waitingDivider.sizeDelta.x;
+            _waitingDividerThickness = _waitingDivider.sizeDelta.y;
+        }
+        if (_decorativeLines != null)
+        {
+            foreach (var l in _decorativeLines)
+            {
+                if (l?.rect == null) continue;
+                l.waitingAnchoredPos = l.rect.anchoredPosition;
+                l.waitingSizeDelta = l.rect.sizeDelta;
+            }
+        }
+        Debug.Log("Captured waiting targets (input field, divider, decorative lines)");
 #if UNITY_EDITOR
         UnityEditor.EditorUtility.SetDirty(this);
 #endif
