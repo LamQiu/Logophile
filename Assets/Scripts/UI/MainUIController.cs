@@ -96,10 +96,13 @@ public class MainUIController : MonoBehaviour
     [Header("Waiting Transition - Fade Out")]
     [SerializeField] CanvasGroup[] _waitingFadeOutGroups;
 
-    [Header("Waiting Transition - InputField Expansion")]
-    [SerializeField] Vector2 _inputFieldWaitingAnchoredPos;
-    [SerializeField] Vector2 _inputFieldWaitingSize;
+    [Header("Waiting Transition - InputField")]
     [SerializeField] string _waitingPlaceholder = "ready";
+
+    [Header("Waiting Transition - Black Panel")]
+    [SerializeField] RectTransform _waitingPanel;
+    [SerializeField] Vector2 _waitingPanelStartSize;
+    [SerializeField] Vector2 _waitingPanelTargetSize;
 
     [Header("Waiting Transition - Divider")]
     [SerializeField] RectTransform _waitingDivider;
@@ -111,12 +114,12 @@ public class MainUIController : MonoBehaviour
     [Header("Waiting Transition - Display Content")]
     [SerializeField] TypewriterEffect _waitingTitleTypewriter;
     [SerializeField] CanvasGroup _waitingTitleGroup;
+    [SerializeField] TypewriterEffect _waitingRoomIdTypewriter;
     [SerializeField] CanvasGroup _waitingRoomIdGroup;
-    [SerializeField] TMP_Text _waitingRoomIdText;
-    [SerializeField] CanvasGroup _waitingP1Group;
-    [SerializeField] CanvasGroup _waitingYouArrowGroup;
-    [SerializeField] CanvasGroup _waitingP2Group;
+    [SerializeField] TypewriterEffect _waitingHintTypewriter;
     [SerializeField] CanvasGroup _waitingHintGroup;
+    [SerializeField] CanvasGroup _waitingP1Group;
+    [SerializeField] CanvasGroup _waitingP2Group;
     [SerializeField] float _waitingContentGapAfterDivider = 0.1f;
     [SerializeField] float _waitingContentStagger = 0.1f;
     [SerializeField] float _waitingContentFadeDuration = 0.3f;
@@ -346,7 +349,7 @@ public class MainUIController : MonoBehaviour
             }
         }
 
-        // InputField: clear text, lock input, fade content out, expand to panel size
+        // InputField: clear text, fade its current content out, leave its rect alone
         if (_inputField != null)
         {
             _inputField.DeactivateInputField();
@@ -355,22 +358,25 @@ public class MainUIController : MonoBehaviour
         }
         if (_inputFieldContentGroup != null)
             seq.Join(_inputFieldContentGroup.DOFade(0f, _fadeOutDuration).SetEase(_ease));
-        if (_inputFieldRect != null)
+
+        // Black panel: starts at the InputField footprint, grows up to target size
+        if (_waitingPanel != null)
         {
-            seq.Join(_inputFieldRect.DOAnchorPos(_inputFieldWaitingAnchoredPos, _duration).SetEase(_ease));
-            seq.Join(_inputFieldRect.DOSizeDelta(_inputFieldWaitingSize, _duration).SetEase(_ease));
+            _waitingPanel.sizeDelta = _waitingPanelStartSize;
+            seq.Join(_waitingPanel.DOSizeDelta(_waitingPanelTargetSize, _duration).SetEase(_ease));
         }
 
         // Reset divider + waiting content to invisible/zero starting state
         if (_waitingDivider != null)
             _waitingDivider.sizeDelta = new Vector2(_waitingDividerFullWidth, 0f);
         if (_waitingTitleTypewriter != null) _waitingTitleTypewriter.Hide();
+        if (_waitingRoomIdTypewriter != null) _waitingRoomIdTypewriter.Hide();
+        if (_waitingHintTypewriter != null) _waitingHintTypewriter.Hide();
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
         if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
-        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
-        if (_waitingYouArrowGroup != null) _waitingYouArrowGroup.alpha = 0f;
-        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
+        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
+        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
 
         StartCoroutine(WaitingRevealRoutine());
     }
@@ -390,7 +396,7 @@ public class MainUIController : MonoBehaviour
 
         yield return new WaitForSeconds(_waitingDividerDuration + _waitingContentGapAfterDivider);
 
-        // Stagger fade-in of display content
+        // Typewriter sequence: title → room id → hint, with P1/P2 fading in mid-sequence
         // 1) "waiting.." typewriter
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 1f;
         if (_waitingTitleTypewriter != null)
@@ -400,28 +406,29 @@ public class MainUIController : MonoBehaviour
         }
         yield return new WaitForSeconds(_waitingContentStagger);
 
-        // 2) room id text
-        if (_waitingRoomIdGroup != null)
-            _waitingRoomIdGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        // 2) room id typewriter
+        if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 1f;
+        if (_waitingRoomIdTypewriter != null)
+        {
+            _waitingRoomIdTypewriter.Play();
+            yield return new WaitUntil(() => !_waitingRoomIdTypewriter.IsPlaying);
+        }
         yield return new WaitForSeconds(_waitingContentStagger);
 
-        // 3) P1 box + "you" arrow (joined: "you" identifies P1)
+        // 3) P1 + P2 fade in (the only non-typewriter elements)
         if (_waitingP1Group != null)
             _waitingP1Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
-        if (_waitingYouArrowGroup != null)
-            _waitingYouArrowGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
-        yield return new WaitForSeconds(_waitingContentStagger);
-
-        // 4) P2 box
         if (_waitingP2Group != null)
             _waitingP2Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
-        yield return new WaitForSeconds(_waitingContentStagger);
+        yield return new WaitForSeconds(_waitingContentFadeDuration + _waitingContentStagger);
 
-        // 5) "type ready to ready up" hint
-        if (_waitingHintGroup != null)
-            _waitingHintGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
-
-        yield return new WaitForSeconds(_waitingContentFadeDuration);
+        // 4) "type ready to ready up" hint typewriter
+        if (_waitingHintGroup != null) _waitingHintGroup.alpha = 1f;
+        if (_waitingHintTypewriter != null)
+        {
+            _waitingHintTypewriter.Play();
+            yield return new WaitUntil(() => !_waitingHintTypewriter.IsPlaying);
+        }
 
         // Show placeholder ("ready") in the bottom strip but disable typing —
         // "ready" is captured elsewhere (key listener), the InputField is now
@@ -506,15 +513,17 @@ public class MainUIController : MonoBehaviour
         if (_roomIdTitleTypewriter != null) _roomIdTitleTypewriter.Hide();
         if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Hide();
 
+        if (_waitingPanel != null) _waitingPanel.sizeDelta = _waitingPanelStartSize;
         if (_waitingDivider != null)
             _waitingDivider.sizeDelta = new Vector2(_waitingDividerFullWidth, 0f);
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
         if (_waitingTitleTypewriter != null) _waitingTitleTypewriter.Hide();
         if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
-        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
-        if (_waitingYouArrowGroup != null) _waitingYouArrowGroup.alpha = 0f;
-        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
+        if (_waitingRoomIdTypewriter != null) _waitingRoomIdTypewriter.Hide();
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
+        if (_waitingHintTypewriter != null) _waitingHintTypewriter.Hide();
+        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
+        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
     }
 
     [ContextMenu("Capture Current As Tutorial Target")]
@@ -566,11 +575,8 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Capture Current As Waiting Target")]
     void CaptureCurrentAsWaitingTarget()
     {
-        if (_inputFieldRect != null)
-        {
-            _inputFieldWaitingAnchoredPos = _inputFieldRect.anchoredPosition;
-            _inputFieldWaitingSize = _inputFieldRect.sizeDelta;
-        }
+        if (_waitingPanel != null)
+            _waitingPanelTargetSize = _waitingPanel.sizeDelta;
         if (_waitingDivider != null)
         {
             _waitingDividerFullWidth = _waitingDivider.sizeDelta.x;
@@ -585,7 +591,20 @@ public class MainUIController : MonoBehaviour
                 l.waitingSizeDelta = l.rect.sizeDelta;
             }
         }
-        Debug.Log("Captured waiting targets (input field, divider, decorative lines)");
+        Debug.Log("Captured waiting targets (panel size, divider, decorative lines)");
+    }
+
+    [ContextMenu("Capture Current As Waiting Panel Start")]
+    void CaptureCurrentAsWaitingPanelStart()
+    {
+        if (_waitingPanel != null)
+        {
+            _waitingPanelStartSize = _waitingPanel.sizeDelta;
+            Debug.Log($"Captured waiting panel start size: {_waitingPanelStartSize}");
+#if UNITY_EDITOR
+            UnityEditor.EditorUtility.SetDirty(this);
+#endif
+        }
 #if UNITY_EDITOR
         UnityEditor.EditorUtility.SetDirty(this);
 #endif
