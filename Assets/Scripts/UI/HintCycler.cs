@@ -3,7 +3,7 @@ using TMPro;
 using UnityEngine;
 
 [RequireComponent(typeof(TMP_Text))]
-[AddComponentMenu("UI/Hint Cycler")]
+[AddComponentMenu("Logophile UI/Hint Cycler")]
 public class HintCycler : MonoBehaviour
 {
     [SerializeField] TypewriterEffect _typewriter;

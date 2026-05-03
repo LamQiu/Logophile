@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(xargs grep:*)",
+      "Bash(grep -n \"r: 1, g: 1, b: 0\" /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets/Prefabs/UI/*.prefab)",
+      "Bash(python3)",
+      "Bash(find /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets/Scripts -name \"*.cs\" -exec grep -l \"Color.*yellow\\\\|Color.*1.*1.*0\\\\|BackgroundColor\\\\|clearColor\" {} \\\\;)",
+      "Bash(find /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets -type f \\\\\\( -name \"*.prefab\" -o -name \"*.unity\" \\\\\\) -exec grep -l \"1, g: 1, b: 0\\\\|ffff00\" {} \\\\;)",
+      "Bash(grep -E \"\\\\.unity$\")",
+      "Bash(grep -h \"m_Color: {r: \" /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets/Scenes/*.unity)",
+      "Bash(grep -r \"m_Color: {r: 0, g: 0.99607843, b: 0.007843138\" /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets/Scenes/ --include=\"*.unity\")",
+      "Bash(grep -B50 \"m_Color: {r: 0, g: 0.99607843, b: 0.007843138\" /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets/Scenes/temp.unity)",
+      "Bash(grep -n \"m_BackGroundColor: {r: 1, g: 1, b: 0\" /c/Users/KuangPi/Documents/GitHub/Typing-Game--Second-Proof-of-Concept-/Assets/Scenes/*.unity)"
+    ]
+  }
+}
