@@ -2586,7 +2586,9 @@ MonoBehaviour:
     visibleGroups:
     - {fileID: 6175574244329737201}
     - {fileID: 3286630559987386520}
+    - {fileID: 847931742408252213}
     - {fileID: 5894662359776006093}
+    - {fileID: 1843543993999835406}
     manuallyRevealedGroups:
     - {fileID: 3286630559987386520}
     - {fileID: 5894662359776006093}
@@ -2595,11 +2597,16 @@ MonoBehaviour:
     - {fileID: 6175574244329737201}
     - {fileID: 7016132787650353461}
     - {fileID: 8785309386604417612}
+    - {fileID: 847931742408252213}
+    - {fileID: 1843543993999835406}
     manuallyRevealedGroups:
     - {fileID: 7016132787650353461}
     - {fileID: 8785309386604417612}
   - state: 3
     visibleGroups:
+    - {fileID: 8365597367610960601}
+    - {fileID: 847931742408252213}
+    - {fileID: 1843543993999835406}
     - {fileID: 7500137902021595890}
     - {fileID: 3356878192376763296}
     - {fileID: 2848448232785827409}
@@ -2623,8 +2630,8 @@ MonoBehaviour:
     tutorialSizeDelta: {x: 1800, y: 20}
     roomIdAnchoredPos: {x: -62.834534, y: -269.7135}
     roomIdSizeDelta: {x: 1676.731, y: 20.2059}
-    waitingAnchoredPos: {x: -62.834534, y: -269.7135}
-    waitingSizeDelta: {x: 1676.731, y: 20.2059}
+    waitingAnchoredPos: {x: -3, y: 470}
+    waitingSizeDelta: {x: 1800, y: 20}
     initialAnchoredPos: {x: -62.834534, y: -269.7135}
     initialSizeDelta: {x: 1676.731, y: 20.2059}
   - rect: {fileID: 2066228306295382900}
@@ -2632,8 +2639,8 @@ MonoBehaviour:
     tutorialSizeDelta: {x: 1800, y: 20}
     roomIdAnchoredPos: {x: -43.42279, y: -303.4}
     roomIdSizeDelta: {x: 1715.544, y: 20.2059}
-    waitingAnchoredPos: {x: -43.42279, y: -303.4}
-    waitingSizeDelta: {x: 1715.544, y: 20.2059}
+    waitingAnchoredPos: {x: -3, y: 436}
+    waitingSizeDelta: {x: 1800, y: 20}
     initialAnchoredPos: {x: -43.42279, y: -303.4}
     initialSizeDelta: {x: 1715.544, y: 20.2059}
   - rect: {fileID: 5408244024207325491}
@@ -2641,8 +2648,8 @@ MonoBehaviour:
     tutorialSizeDelta: {x: 1800, y: 20}
     roomIdAnchoredPos: {x: -20.1286, y: -338.5}
     roomIdSizeDelta: {x: 1762.1321, y: 20.2059}
-    waitingAnchoredPos: {x: -20.1286, y: -338.5}
-    waitingSizeDelta: {x: 1762.1321, y: 20.2059}
+    waitingAnchoredPos: {x: -3, y: 402}
+    waitingSizeDelta: {x: 1800, y: 20}
     initialAnchoredPos: {x: -20.1286, y: -338.5}
     initialSizeDelta: {x: 1762.1321, y: 20.2059}
   _tutorialTitleTypewriter: {fileID: 7106287541609038164}
@@ -2670,8 +2677,8 @@ MonoBehaviour:
   _waitingPanel: {fileID: 8393479522457243401}
   _waitingPanelStartAnchoredPos: {x: 1.0183716, y: -481.60284}
   _waitingPanelStartSize: {x: 1800.3005, y: 120.4148}
-  _waitingPanelTargetSize: {x: 1800.3005, y: 683.28}
-  _waitingPanelRevealAmount: 100
+  _waitingPanelTargetSize: {x: 1800.3005, y: 846}
+  _waitingPanelRevealAmount: 140
   _waitingPanelRevealDelay: 0.15
   _waitingPanelRevealDuration: 0.3
   _waitingTitleTypewriter: {fileID: 346888051222066895}
@@ -3972,6 +3979,18 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 1571452836754260764}
     m_Modifications:
+    - target: {fileID: 74491861954629575, guid: 556cce999a1aac542a553b4fe6bb5699, type: 3}
+      propertyPath: m_text
+      value: P2
+      objectReference: {fileID: 0}
+    - target: {fileID: 8449024879089227748, guid: 556cce999a1aac542a553b4fe6bb5699, type: 3}
+      propertyPath: _slot
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8449024879089227748, guid: 556cce999a1aac542a553b4fe6bb5699, type: 3}
+      propertyPath: _isLocal
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 74491861954629575, guid: 556cce999a1aac542a553b4fe6bb5699, type: 3}
       propertyPath: m_fontSize
       value: 96.15
