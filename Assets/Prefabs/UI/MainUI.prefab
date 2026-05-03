@@ -1274,6 +1274,94 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!1 &9001000000000000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9001010000000000001}
+  - component: {fileID: 9001020000000000001}
+  - component: {fileID: 9001030000000000001}
+  - component: {fileID: 9001040000000000001}
+  m_Layer: 5
+  m_Name: LoadingScreenRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &9001010000000000001
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9001000000000000001}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 0, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 3504728365038075824}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0}
+  m_AnchorMax: {x: 0.5, y: 0}
+  m_AnchoredPosition: {x: 0, y: -8}
+  m_SizeDelta: {x: 1984, y: 1096}
+  m_Pivot: {x: 0.5, y: 0}
+--- !u!222 &9001020000000000001
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9001000000000000001}
+  m_CullTransparentMesh: 1
+--- !u!114 &9001030000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9001000000000000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 0.9882353, b: 0.96862745, a: 1}
+  m_RaycastTarget: 0
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 0}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!225 &9001040000000000001
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9001000000000000001}
+  m_Enabled: 1
+  m_Alpha: 0
+  m_Interactable: 0
+  m_BlocksRaycasts: 0
+  m_IgnoreParentGroups: 0
 --- !u!1 &2584981957673139836
 GameObject:
   m_ObjectHideFlags: 0
@@ -2534,6 +2622,7 @@ RectTransform:
   - {fileID: 8393479522457243401}
   - {fileID: 8705894254200211746}
   - {fileID: 5916578211351964792}
+  - {fileID: 9001010000000000001}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -2618,8 +2707,15 @@ MonoBehaviour:
     - {fileID: 2848448232785827409}
     - {fileID: 6742156820025350322}
     - {fileID: 178558500346766167}
+  - state: 4
+    visibleGroups:
+    - {fileID: 9001040000000000001}
+    manuallyRevealedGroups: []
   _currentState: 0
   _fadeOutDuration: 0.4
+  _stateAnimations: []
+  _postWaitingRevealDelayAfterMotion: 0.1
+  _postWaitingRevealStagger: 0.1
   _inputField: {fileID: 8616932059017391810}
   _inputFieldRect: {fileID: 8705894254200211746}
   _inputFieldContentGroup: {fileID: 7148339933720519802}
@@ -2692,6 +2788,11 @@ MonoBehaviour:
   _waitingContentGapAfterReveal: 0.1
   _waitingContentStagger: 0.1
   _waitingContentFadeDuration: 0.3
+  _loadingScreenRect: {fileID: 9001010000000000001}
+  _loadingScreenImage: {fileID: 9001030000000000001}
+  _loadingScreenGroup: {fileID: 9001040000000000001}
+  _loadingWipeDuration: 1.2
+  _loadingWipeEase: 6
   _initBarPos: {x: 806.5, y: -101.3}
   _initBarSize: {x: 1232.4421, y: 121.3445}
   _initMWidth: 100

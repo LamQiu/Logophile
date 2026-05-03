@@ -12,7 +12,12 @@ public class MainUIController : MonoBehaviour
         Start,
         Tutorial,
         RoomId,
-        Waiting
+        Waiting,
+        Loading,
+        PromptShowcase,
+        Gameplay,
+        RoundResult,
+        GameEnd
     }
 
     [System.Serializable]
@@ -35,6 +40,42 @@ public class MainUIController : MonoBehaviour
         public Vector2 waitingSizeDelta;
         [HideInInspector] public Vector2 initialAnchoredPos;
         [HideInInspector] public Vector2 initialSizeDelta;
+    }
+
+    [System.Serializable]
+    public class RectTransformTweenTarget
+    {
+        public RectTransform rect;
+        public bool tweenAnchoredPosition = true;
+        public Vector2 anchoredPosition;
+        public bool tweenSizeDelta = true;
+        public Vector2 sizeDelta;
+    }
+
+    [System.Serializable]
+    public class CanvasGroupTweenTarget
+    {
+        public CanvasGroup group;
+        public float targetAlpha = 1f;
+        public bool interactable = true;
+        public bool blocksRaycasts = true;
+    }
+
+    [System.Serializable]
+    public class TypewriterRevealTarget
+    {
+        public TypewriterEffect typewriter;
+        public CanvasGroup group;
+        public float delay;
+    }
+
+    [System.Serializable]
+    public class StateAnimationSet
+    {
+        public MainUIState state;
+        public RectTransformTweenTarget[] rectTargets;
+        public CanvasGroupTweenTarget[] canvasGroupTargets;
+        public TypewriterRevealTarget[] typewriterTargets;
     }
 
     [Header("Intro Sequence")]
@@ -69,6 +110,11 @@ public class MainUIController : MonoBehaviour
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
     [SerializeField] float _fadeOutDuration = 0.4f;
+
+    [Header("Post-Waiting State Animations")]
+    [SerializeField] StateAnimationSet[] _stateAnimations;
+    [SerializeField] float _postWaitingRevealDelayAfterMotion = 0.1f;
+    [SerializeField] float _postWaitingRevealStagger = 0.1f;
 
     [Header("Tutorial Transition - Input Field")]
     [SerializeField] TMP_InputField _inputField;
@@ -132,6 +178,13 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _waitingContentGapAfterReveal = 0.1f;
     [SerializeField] float _waitingContentStagger = 0.1f;
     [SerializeField] float _waitingContentFadeDuration = 0.3f;
+
+    [Header("Loading Transition - White Field")]
+    [SerializeField] RectTransform _loadingScreenRect;
+    [SerializeField] Image _loadingScreenImage;
+    [SerializeField] CanvasGroup _loadingScreenGroup;
+    [SerializeField] float _loadingWipeDuration = 1.2f;
+    [SerializeField] Ease _loadingWipeEase = Ease.OutQuad;
 
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
@@ -363,6 +416,130 @@ public class MainUIController : MonoBehaviour
         StartCoroutine(WaitingRevealRoutine());
     }
 
+    [ContextMenu("Transition To Loading")]
+    public void TransitionToLoading()
+    {
+        if (_currentState == MainUIState.Waiting && _loadingScreenRect != null && _loadingScreenGroup != null)
+        {
+            TransitionFromWaitingToLoading();
+            return;
+        }
+
+        TransitionToConfiguredState(MainUIState.Loading);
+    }
+
+    void TransitionFromWaitingToLoading()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        PrepareLoadingWipeStart();
+        _loadingScreenRect.SetAsLastSibling();
+
+        _loadingScreenGroup.alpha = 1f;
+        _loadingScreenGroup.interactable = false;
+        _loadingScreenGroup.blocksRaycasts = false;
+
+        var seq = DOTween.Sequence().SetId(this);
+        seq.Append(_loadingScreenRect.DOScaleY(1f, _loadingWipeDuration).SetEase(_loadingWipeEase));
+        seq.OnComplete(SetLoadingWipeComplete);
+        _currentState = MainUIState.Loading;
+    }
+
+    void PrepareLoadingWipeStart()
+    {
+        var parentSize = GetParentRectSize(_loadingScreenRect);
+
+        _loadingScreenRect.anchorMin = new Vector2(0.5f, 0f);
+        _loadingScreenRect.anchorMax = new Vector2(0.5f, 0f);
+        _loadingScreenRect.pivot = new Vector2(0.5f, 0f);
+        _loadingScreenRect.anchoredPosition = new Vector2(0f, -8f);
+        _loadingScreenRect.sizeDelta = new Vector2(parentSize.x + 64f, parentSize.y + 16f);
+        _loadingScreenRect.localScale = new Vector3(1f, 0f, 1f);
+
+        if (_loadingScreenImage != null)
+        {
+            _loadingScreenImage.type = Image.Type.Simple;
+            _loadingScreenImage.fillAmount = 1f;
+        }
+    }
+
+    void SetLoadingWipeComplete()
+    {
+        if (_loadingScreenRect == null) return;
+
+        var parentSize = GetParentRectSize(_loadingScreenRect);
+
+        _loadingScreenRect.anchorMin = new Vector2(0.5f, 0f);
+        _loadingScreenRect.anchorMax = new Vector2(0.5f, 0f);
+        _loadingScreenRect.pivot = new Vector2(0.5f, 0f);
+        _loadingScreenRect.anchoredPosition = new Vector2(0f, -8f);
+        _loadingScreenRect.sizeDelta = new Vector2(parentSize.x + 64f, parentSize.y + 16f);
+        _loadingScreenRect.localScale = Vector3.one;
+        if (_loadingScreenImage != null)
+        {
+            _loadingScreenImage.type = Image.Type.Simple;
+            _loadingScreenImage.fillAmount = 1f;
+        }
+        if (_loadingScreenGroup != null)
+            _loadingScreenGroup.alpha = 1f;
+    }
+
+    Vector2 GetParentRectSize(RectTransform rect)
+    {
+        if (rect != null && rect.parent is RectTransform parentRect)
+        {
+            var size = parentRect.rect.size;
+            return new Vector2(Mathf.Max(1f, size.x), Mathf.Max(1f, size.y));
+        }
+
+        return new Vector2(1920f, 1080f);
+    }
+
+    [ContextMenu("Transition To Prompt Showcase")]
+    public void TransitionToPromptShowcase()
+    {
+        TransitionToConfiguredState(MainUIState.PromptShowcase);
+    }
+
+    [ContextMenu("Transition To Gameplay")]
+    public void TransitionToGameplay()
+    {
+        TransitionToConfiguredState(MainUIState.Gameplay);
+    }
+
+    [ContextMenu("Transition To Round Result")]
+    public void TransitionToRoundResult()
+    {
+        TransitionToConfiguredState(MainUIState.RoundResult);
+    }
+
+    [ContextMenu("Transition To Game End")]
+    public void TransitionToGameEnd()
+    {
+        TransitionToConfiguredState(MainUIState.GameEnd);
+    }
+
+    void TransitionToConfiguredState(MainUIState targetState)
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        if (_hintCycler != null) _hintCycler.StopCycling();
+
+        var seq = DOTween.Sequence().SetId(this);
+        FadeStateDifference(seq, _currentState, targetState);
+
+        var animationSet = GetStateAnimationSet(targetState);
+        if (animationSet != null)
+        {
+            AddRectTweens(seq, animationSet.rectTargets);
+            AddCanvasGroupTweens(seq, animationSet.canvasGroupTargets);
+            ResetTypewriters(animationSet.typewriterTargets);
+            StartCoroutine(RevealTypewritersRoutine(animationSet.typewriterTargets));
+        }
+    }
+
     IEnumerator WaitingRevealRoutine()
     {
         // Wait for the grow phase to finish before retreating the panel's bottom
@@ -514,6 +691,36 @@ public class MainUIController : MonoBehaviour
         if (_waitingHintTypewriter != null) _waitingHintTypewriter.Hide();
         if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
+        if (_loadingScreenRect != null)
+            SetLoadingWipeComplete();
+        if (_loadingScreenGroup != null)
+            _loadingScreenGroup.alpha = 0f;
+    }
+
+    [ContextMenu("Capture Current As Configured State Target")]
+    void CaptureCurrentAsConfiguredStateTarget()
+    {
+        var animationSet = GetStateAnimationSet(_currentState);
+        if (animationSet == null)
+        {
+            Debug.LogWarning($"No configured animation set found for {_currentState}");
+            return;
+        }
+
+        if (animationSet.rectTargets != null)
+        {
+            foreach (var target in animationSet.rectTargets)
+            {
+                if (target?.rect == null) continue;
+                target.anchoredPosition = target.rect.anchoredPosition;
+                target.sizeDelta = target.rect.sizeDelta;
+            }
+        }
+
+        Debug.Log($"Captured configured animation targets for {_currentState}");
+#if UNITY_EDITOR
+        UnityEditor.EditorUtility.SetDirty(this);
+#endif
     }
 
     [ContextMenu("Capture Current As Tutorial Target")]
@@ -604,6 +811,87 @@ public class MainUIController : MonoBehaviour
     Tween TweenPreferredWidth(LayoutElement le, float target)
     {
         return DOTween.To(() => le.preferredWidth, x => le.preferredWidth = x, target, _duration).SetEase(_ease);
+    }
+
+    void AddRectTweens(Sequence seq, RectTransformTweenTarget[] targets)
+    {
+        if (seq == null || targets == null) return;
+
+        foreach (var target in targets)
+        {
+            if (target?.rect == null) continue;
+
+            if (target.tweenAnchoredPosition)
+                seq.Join(target.rect.DOAnchorPos(target.anchoredPosition, _duration).SetEase(_ease));
+            if (target.tweenSizeDelta)
+                seq.Join(target.rect.DOSizeDelta(target.sizeDelta, _duration).SetEase(_ease));
+        }
+    }
+
+    void AddCanvasGroupTweens(Sequence seq, CanvasGroupTweenTarget[] targets)
+    {
+        if (seq == null || targets == null) return;
+
+        foreach (var target in targets)
+        {
+            if (target?.group == null) continue;
+
+            target.group.interactable = target.interactable;
+            target.group.blocksRaycasts = target.blocksRaycasts;
+            seq.Join(target.group.DOFade(target.targetAlpha, _fadeOutDuration).SetEase(_ease));
+        }
+    }
+
+    void ResetTypewriters(TypewriterRevealTarget[] targets)
+    {
+        if (targets == null) return;
+
+        foreach (var target in targets)
+        {
+            if (target == null) continue;
+            if (target.group != null) target.group.alpha = 0f;
+            if (target.typewriter != null) target.typewriter.Hide();
+        }
+    }
+
+    IEnumerator RevealTypewritersRoutine(TypewriterRevealTarget[] targets)
+    {
+        if (targets == null) yield break;
+
+        yield return new WaitForSeconds(Mathf.Max(0f, _duration + _postWaitingRevealDelayAfterMotion));
+
+        foreach (var target in targets)
+        {
+            if (target == null) continue;
+
+            if (target.delay > 0f)
+                yield return new WaitForSeconds(target.delay);
+
+            if (target.group != null)
+                target.group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+
+            if (target.typewriter != null)
+            {
+                target.typewriter.Play();
+                yield return new WaitUntil(() => !target.typewriter.IsPlaying);
+            }
+
+            if (_postWaitingRevealStagger > 0f)
+                yield return new WaitForSeconds(_postWaitingRevealStagger);
+        }
+    }
+
+    StateAnimationSet GetStateAnimationSet(MainUIState state)
+    {
+        if (_stateAnimations == null) return null;
+
+        foreach (var animationSet in _stateAnimations)
+        {
+            if (animationSet != null && animationSet.state == state)
+                return animationSet;
+        }
+
+        return null;
     }
 
     CanvasGroup[] GetVisibleGroups(MainUIState state)

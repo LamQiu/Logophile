@@ -79,7 +79,7 @@ StartScreen → Tutorial → CreateJoin → WaitingRoom → Loading →
 PromptShowcase → Gameplay → RoundResult → GameEnd
 ```
 
-The new flow uses a single `GameUIManager` + state enum with shared GameObjects that morph between states via DOTween, rather than swapping independent panels.
+The new flow uses `Assets/Prefabs/UI/MainUI.prefab` with a single `MainUIController` + state enum for animation previews. Start/Tutorial/CreateJoin/Waiting reuse shared GameObjects that morph between states via DOTween, rather than swapping independent panels. Waiting -> Loading is a separate white-field transition layer (`LoadingScreenRoot`) using the XD/project off-white background color; it is UI-only and not wired to gameplay/network flow yet. Later states (`PromptShowcase`, `Gameplay`, `RoundResult`, `GameEnd`) have controller hooks/config slots but still need their actual prefab UI content before logic wiring.
 
 UI uses Unity UI (Canvas + TMP) for the project's own screens. `Assets/Blocks/` is a **third-party Unity sample kit** (Multiplayer Widgets / Sessions building blocks — `CopySessionCode`, `LeaveSession`, `PlayerList`, etc.) and is not the project's own UI code; treat it as a vendored package.
 
