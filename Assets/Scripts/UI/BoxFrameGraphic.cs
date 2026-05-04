@@ -7,6 +7,7 @@ public class BoxFrameGraphic : MaskableGraphic
 {
     [SerializeField, Min(0f)] float _thickness = 4f;
     [SerializeField] bool _insetFromEdge = true;
+    [SerializeField] Color _fillColor = Color.clear;
 
     public float Thickness
     {
@@ -26,6 +27,17 @@ public class BoxFrameGraphic : MaskableGraphic
         {
             if (_insetFromEdge == value) return;
             _insetFromEdge = value;
+            SetVerticesDirty();
+        }
+    }
+
+    public Color FillColor
+    {
+        get => _fillColor;
+        set
+        {
+            if (_fillColor == value) return;
+            _fillColor = value;
             SetVerticesDirty();
         }
     }
@@ -54,8 +66,12 @@ public class BoxFrameGraphic : MaskableGraphic
             inner = r;
         }
 
+        if (_fillColor.a > 0f)
+            AddQuad(vh, inner, _fillColor);
+
         var v = UIVertex.simpleVert;
         v.color = color;
+        var offset = vh.currentVertCount;
 
         // 0..3 outer corners (BL, TL, TR, BR), 4..7 inner corners
         v.position = new Vector3(outer.xMin, outer.yMin); vh.AddVert(v);
@@ -68,17 +84,32 @@ public class BoxFrameGraphic : MaskableGraphic
         v.position = new Vector3(inner.xMax, inner.yMin); vh.AddVert(v);
 
         // Left side
-        vh.AddTriangle(0, 1, 5);
-        vh.AddTriangle(5, 4, 0);
+        vh.AddTriangle(offset + 0, offset + 1, offset + 5);
+        vh.AddTriangle(offset + 5, offset + 4, offset + 0);
         // Top side
-        vh.AddTriangle(1, 2, 6);
-        vh.AddTriangle(6, 5, 1);
+        vh.AddTriangle(offset + 1, offset + 2, offset + 6);
+        vh.AddTriangle(offset + 6, offset + 5, offset + 1);
         // Right side
-        vh.AddTriangle(2, 3, 7);
-        vh.AddTriangle(7, 6, 2);
+        vh.AddTriangle(offset + 2, offset + 3, offset + 7);
+        vh.AddTriangle(offset + 7, offset + 6, offset + 2);
         // Bottom side
-        vh.AddTriangle(3, 0, 4);
-        vh.AddTriangle(4, 7, 3);
+        vh.AddTriangle(offset + 3, offset + 0, offset + 4);
+        vh.AddTriangle(offset + 4, offset + 7, offset + 3);
+    }
+
+    static void AddQuad(VertexHelper vh, Rect r, Color color)
+    {
+        var offset = vh.currentVertCount;
+        var v = UIVertex.simpleVert;
+        v.color = color;
+
+        v.position = new Vector3(r.xMin, r.yMin); vh.AddVert(v);
+        v.position = new Vector3(r.xMin, r.yMax); vh.AddVert(v);
+        v.position = new Vector3(r.xMax, r.yMax); vh.AddVert(v);
+        v.position = new Vector3(r.xMax, r.yMin); vh.AddVert(v);
+
+        vh.AddTriangle(offset, offset + 1, offset + 2);
+        vh.AddTriangle(offset + 2, offset + 3, offset);
     }
 
 #if UNITY_EDITOR

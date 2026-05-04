@@ -4,10 +4,23 @@ using System.Text;
 using DG.Tweening;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 public class MainUIController : MonoBehaviour
 {
+    const string PromptSharedGroupName = "PromptSharedGroup";
+    const string DeprecatedPromptShowcaseRootName = "PromptShowcaseRoot";
+    const string GameplayElementsGroupName = "GameplayElementsGroup";
+    const string DeprecatedGameplayRootName = "GameplayRoot";
+
+#if UNITY_EDITOR
+    const string MainUIPrefabPath = "Assets/Prefabs/UI/MainUI.prefab";
+    static bool s_buildingLoadedPrefabAsset;
+    static bool s_prefabBuildScheduled;
+#endif
+
     public enum MainUIState
     {
         Start,
@@ -150,6 +163,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Vector2 _inputFieldRoomIdSize;
     [SerializeField] TMP_Text _inputFieldPlaceholderText;
     [SerializeField] string _roomIdPlaceholder = "create / join";
+    [SerializeField] Color _inputFieldPlaceholderColor = new Color(0.25882354f, 0.25490198f, 0.25490198f, 0.5f);
 
     [Header("Room ID Transition - Fade In")]
     [SerializeField] TypewriterEffect _roomIdTitleTypewriter;
@@ -192,16 +206,18 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Ease _loadingWipeEase = Ease.OutQuad;
     [SerializeField] float _loadingAutoPromptDelay = 2f;
 
-    [Header("Prompt Showcase - Generated View")]
-    [SerializeField] RectTransform _promptShowcaseRoot;
-    [SerializeField] CanvasGroup _promptShowcaseGroup;
-    [SerializeField] Image _promptShowcaseBackground;
+    [Header("Shared Prompt Elements")]
+    [FormerlySerializedAs("_promptShowcaseRoot")]
+    [FormerlySerializedAs("_promptSharedRoot")]
+    [SerializeField] RectTransform _promptSharedGroupRect;
+    [FormerlySerializedAs("_promptShowcaseGroup")]
+    [SerializeField] CanvasGroup _promptSharedGroup;
+    [FormerlySerializedAs("_promptShowcaseBackground")]
+    [SerializeField] Image _promptSharedBackground;
     [SerializeField] RectTransform _promptPromptMask;
     [SerializeField] RectTransform _promptBannedMask;
     [SerializeField] TMP_Text _promptTitleText;
     [SerializeField] TMP_Text _promptBannedText;
-    [SerializeField] TMP_Text _promptMaskTitleText;
-    [SerializeField] TMP_Text _promptMaskBannedText;
     [SerializeField] string _promptText = "start with \"a\"";
     [SerializeField] string _promptMaskText = "start with";
     [SerializeField] string _promptMaskBannedTextValue = "banned letters";
@@ -210,12 +226,43 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Color _promptInkColor = new Color(0.14509805f, 0.14509805f, 0.14509805f, 1f);
     [SerializeField] Color _promptMaskTitleColor = new Color(0.93333334f, 0.91764706f, 0.89411765f, 1f);
     [SerializeField] Color _promptMaskBannedTextColor = new Color(1f, 0.9882353f, 0.96862745f, 1f);
-    [SerializeField] Color _promptBannedLetterColor = new Color(1f, 0f, 1f, 1f);
+    [SerializeField] Color _promptBannedLetterColor = new Color(0.92156863f, 0f, 0.54509807f, 1f);
     [SerializeField] float _promptMaskEnterDuration = 0.8f;
     [SerializeField] float _promptTextFadeDuration = 0.35f;
     [SerializeField] float _promptHoldBeforeRevealSeconds = 2f;
     [SerializeField] float _promptMaskRevealDuration = 1f;
     [SerializeField] Ease _promptMaskRevealEase = Ease.OutCubic;
+    [SerializeField] float _promptAutoGameplayDelay = 2f;
+
+    [Header("Gameplay-Only Elements")]
+    [FormerlySerializedAs("_gameplayRoot")]
+    [FormerlySerializedAs("_gameplayElementsRoot")]
+    [SerializeField] RectTransform _gameplayElementsGroupRect;
+    [FormerlySerializedAs("_gameplayGroup")]
+    [SerializeField] CanvasGroup _gameplayElementsGroup;
+    [SerializeField] Image _gameplayBackground;
+    [SerializeField] RectTransform _gameplayTimerBar;
+    [SerializeField] string _gameplayInputPlaceholder = "";
+    [SerializeField] TMP_Text _gameplayP1Text;
+    [SerializeField] TMP_Text _gameplayP2Text;
+    [SerializeField] Image _gameplayP1Box;
+    [SerializeField] Image _gameplayP2Box;
+    [SerializeField] RectTransform _gameplayP1LetterGroup;
+    [SerializeField] RectTransform _gameplayP2LetterGroup;
+    [SerializeField] Vector2 _gameplayLetterBlockSize = new Vector2(21f, 50f);
+    [SerializeField] float _gameplayLetterBlockSpacing = 42f;
+    [SerializeField] Color _gameplayLetterNeutralColor = new Color(0.52156866f, 0.52156866f, 0.52156866f, 1f);
+    [SerializeField] Color _gameplayP1LetterColor = new Color(1f, 0.94509804f, 0.015686275f, 1f);
+    [SerializeField] Color _gameplayP2LetterColor = new Color(0f, 0.68235296f, 0.93333334f, 1f);
+    [SerializeField] Color _gameplayBannedFlashColor = new Color(1f, 0f, 0f, 1f);
+    [SerializeField] float _gameplayBannedFlashDuration = 0.35f;
+    [SerializeField] float _gameplayFadeDuration = 0.35f;
+    [SerializeField] float _gameplaySlideOffset = 36f;
+    [SerializeField] float _gameplayTimerDrainPreviewDuration = 10f;
+    [SerializeField] float _gameplayTimerPreviewWidth = 0f;
+    string _gameplayP1Word = "";
+    string _gameplayP2Word = "";
+    bool _gameplayInputListenerRegistered;
 
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
@@ -229,8 +276,132 @@ public class MainUIController : MonoBehaviour
 
     void Awake()
     {
+        DisableSceneOwnedGeneratedUiOrphans();
         if (!_initialCaptured) CaptureInitialState();
         SetStateVisibilityImmediate(_currentState);
+    }
+
+#if UNITY_EDITOR
+    [UnityEditor.InitializeOnLoadMethod]
+    static void ScheduleMainUIPrefabBuild()
+    {
+        if (s_prefabBuildScheduled) return;
+
+        s_prefabBuildScheduled = true;
+        UnityEditor.EditorApplication.delayCall += BuildMainUIPrefabAssetIfNeeded;
+    }
+
+    static void BuildMainUIPrefabAssetIfNeeded()
+    {
+        s_prefabBuildScheduled = false;
+        if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode) return;
+        if (UnityEditor.EditorApplication.isCompiling || UnityEditor.EditorApplication.isUpdating)
+        {
+            ScheduleMainUIPrefabBuild();
+            return;
+        }
+
+        var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(MainUIPrefabPath);
+        var assetController = prefab != null ? prefab.GetComponent<MainUIController>() : null;
+        if (assetController == null || assetController.HasPrefabOwnedSharedPromptAndGameplayUi()) return;
+
+        var prefabRoot = UnityEditor.PrefabUtility.LoadPrefabContents(MainUIPrefabPath);
+        if (prefabRoot == null) return;
+
+        try
+        {
+            var controller = prefabRoot.GetComponent<MainUIController>();
+            if (controller == null || controller.HasPrefabOwnedSharedPromptAndGameplayUi()) return;
+
+            s_buildingLoadedPrefabAsset = true;
+            controller.BuildPrefabOwnedSharedPromptAndGameplayUi();
+            UnityEditor.PrefabUtility.SaveAsPrefabAsset(prefabRoot, MainUIPrefabPath);
+        }
+        finally
+        {
+            s_buildingLoadedPrefabAsset = false;
+            UnityEditor.PrefabUtility.UnloadPrefabContents(prefabRoot);
+        }
+    }
+
+    void OnValidate()
+    {
+        if (Application.isPlaying) return;
+        if (!CanEditPrefabAssetStructure()) return;
+
+        ScheduleMainUIPrefabBuild();
+    }
+
+    [ContextMenu("Build Prefab-Owned Shared Prompt/Game Elements")]
+    void BuildPrefabOwnedSharedPromptAndGameplayUi()
+    {
+        if (!CanEditPrefabAssetStructure())
+        {
+            Debug.LogError("Open MainUI.prefab in Prefab Mode before building shared prompt/gameplay UI children.");
+            return;
+        }
+
+        EnsurePromptSharedView();
+        EnsureGameplayElementsView();
+        PrepareGameplayStart();
+        SyncGeneratedStateGroupsForInspector();
+        SetStateVisibilityImmediate(_currentState);
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+
+    bool HasPrefabOwnedSharedPromptAndGameplayUi()
+    {
+        var promptRoot = _promptSharedGroupRect != null ? _promptSharedGroupRect : FindPromptSharedRoot(false);
+        var gameplayRoot = _gameplayElementsGroupRect != null ? _gameplayElementsGroupRect : FindGameplayElementsRoot(false);
+
+        return promptRoot != null
+            && gameplayRoot != null
+            && promptRoot.GetComponent<CanvasGroup>() != null
+            && gameplayRoot.GetComponent<CanvasGroup>() != null
+            && HasImageChild(promptRoot, "PromptMainBlackMask")
+            && HasImageChild(promptRoot, "PromptBannedBlackMask")
+            && HasTextChild(promptRoot, "PromptTitleText")
+            && HasTextChild(promptRoot, "PromptBannedText")
+            && HasImageChild(gameplayRoot, "GameplayTimerBar")
+            && FindChildRect(gameplayRoot, "GameplayP1LetterGroup") != null
+            && FindChildRect(gameplayRoot, "GameplayP2LetterGroup") != null;
+    }
+
+    bool HasImageChild(RectTransform parent, string childName)
+    {
+        var rect = FindChildRect(parent, childName);
+        return rect != null && rect.GetComponent<Image>() != null;
+    }
+
+    bool HasTextChild(RectTransform parent, string childName)
+    {
+        var rect = FindChildRect(parent, childName);
+        return rect != null && rect.GetComponent<TMP_Text>() != null;
+    }
+#endif
+
+    RectTransform FindPromptSharedRoot(bool renameDeprecated)
+    {
+        var rect = FindChildRect(transform, PromptSharedGroupName);
+        if (rect == null)
+            rect = FindChildRect(transform, DeprecatedPromptShowcaseRootName);
+
+        if (renameDeprecated && rect != null && rect.name == DeprecatedPromptShowcaseRootName)
+            rect.name = PromptSharedGroupName;
+
+        return rect;
+    }
+
+    RectTransform FindGameplayElementsRoot(bool renameDeprecated)
+    {
+        var rect = FindChildRect(transform, GameplayElementsGroupName);
+        if (rect == null)
+            rect = FindChildRect(transform, DeprecatedGameplayRootName);
+
+        if (renameDeprecated && rect != null && rect.name == DeprecatedGameplayRootName)
+            rect.name = GameplayElementsGroupName;
+
+        return rect;
     }
 
     [ContextMenu("Capture Current As Initial State")]
@@ -260,7 +431,18 @@ public class MainUIController : MonoBehaviour
 
     void Start()
     {
+        RegisterGameplayInputListener();
         if (_playIntroOnStart) PlayIntro();
+    }
+
+    void OnEnable()
+    {
+        RegisterGameplayInputListener();
+    }
+
+    void OnDisable()
+    {
+        UnregisterGameplayInputListener();
     }
 
     void Update()
@@ -332,7 +514,7 @@ public class MainUIController : MonoBehaviour
         var seq = DOTween.Sequence().SetId(this);
         FadeStateDifference(seq, _currentState, MainUIState.Tutorial);
 
-        // Skew → 0 (parallelogram → rectangle)
+        // Skew -> 0 (parallelogram -> rectangle)
         seq.Join(TweenSkew(_graphicM, 0f));
         seq.Join(TweenSkew(_graphicY, 0f));
         seq.Join(TweenSkew(_graphicC, 0f));
@@ -407,7 +589,10 @@ public class MainUIController : MonoBehaviour
             _inputField.text = string.Empty;
         }
         if (_inputFieldPlaceholderText != null)
+        {
             _inputFieldPlaceholderText.text = _roomIdPlaceholder;
+            _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
+        }
         if (_inputFieldContentGroup != null)
         {
             _inputFieldContentGroup.alpha = 0f;
@@ -482,6 +667,7 @@ public class MainUIController : MonoBehaviour
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
         if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
+        ConfigureWaitingPlayerIconsLayout();
         if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
 
@@ -531,14 +717,7 @@ public class MainUIController : MonoBehaviour
 
     void PrepareLoadingWipeStart()
     {
-        var parentSize = GetParentRectSize(_loadingScreenRect);
-
-        _loadingScreenRect.anchorMin = new Vector2(0.5f, 0f);
-        _loadingScreenRect.anchorMax = new Vector2(0.5f, 0f);
-        _loadingScreenRect.pivot = new Vector2(0.5f, 0f);
-        _loadingScreenRect.anchoredPosition = new Vector2(0f, -8f);
-        _loadingScreenRect.sizeDelta = new Vector2(parentSize.x + 64f, parentSize.y + 16f);
-        _loadingScreenRect.localScale = new Vector3(1f, 0f, 1f);
+        ApplyLoadingScreenLayout(0f);
 
         if (_loadingScreenImage != null)
         {
@@ -551,14 +730,7 @@ public class MainUIController : MonoBehaviour
     {
         if (_loadingScreenRect == null) return;
 
-        var parentSize = GetParentRectSize(_loadingScreenRect);
-
-        _loadingScreenRect.anchorMin = new Vector2(0.5f, 0f);
-        _loadingScreenRect.anchorMax = new Vector2(0.5f, 0f);
-        _loadingScreenRect.pivot = new Vector2(0.5f, 0f);
-        _loadingScreenRect.anchoredPosition = new Vector2(0f, -8f);
-        _loadingScreenRect.sizeDelta = new Vector2(parentSize.x + 64f, parentSize.y + 16f);
-        _loadingScreenRect.localScale = Vector3.one;
+        ApplyLoadingScreenLayout(1f);
         if (_loadingScreenImage != null)
         {
             _loadingScreenImage.type = Image.Type.Simple;
@@ -566,6 +738,19 @@ public class MainUIController : MonoBehaviour
         }
         if (_loadingScreenGroup != null)
             _loadingScreenGroup.alpha = 1f;
+    }
+
+    void ApplyLoadingScreenLayout(float scaleY)
+    {
+        if (_loadingScreenRect == null) return;
+
+        var parentSize = GetParentRectSize(_loadingScreenRect);
+        _loadingScreenRect.anchorMin = new Vector2(0.5f, 0.5f);
+        _loadingScreenRect.anchorMax = new Vector2(0.5f, 0.5f);
+        _loadingScreenRect.pivot = new Vector2(0.5f, 0f);
+        _loadingScreenRect.anchoredPosition = new Vector2(0f, parentSize.y * -0.5f);
+        _loadingScreenRect.sizeDelta = parentSize;
+        _loadingScreenRect.localScale = new Vector3(1f, scaleY, 1f);
     }
 
     Vector2 GetParentRectSize(RectTransform rect)
@@ -596,11 +781,11 @@ public class MainUIController : MonoBehaviour
         DOTween.Kill(this);
         StopAllCoroutines();
 
-        EnsurePromptShowcaseView();
+        EnsurePromptSharedView();
         PreparePromptShowcaseStart();
 
-        if (_promptShowcaseRoot != null)
-            _promptShowcaseRoot.SetAsLastSibling();
+        if (_promptSharedGroupRect != null)
+            _promptSharedGroupRect.SetAsLastSibling();
 
         var seq = DOTween.Sequence().SetId(this);
 
@@ -615,30 +800,36 @@ public class MainUIController : MonoBehaviour
         }
         if (_promptBannedMask != null)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
-        if (_promptMaskTitleText != null)
-            AddPromptEnterTween(seq, ref hasEnterTween, _promptMaskTitleText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
-        if (_promptMaskBannedText != null)
-            AddPromptEnterTween(seq, ref hasEnterTween, _promptMaskBannedText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
+        if (_promptTitleText != null)
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptTitleText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
+        if (_promptBannedText != null)
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
 
-        seq.AppendCallback(SetPromptBaseTextVisible);
         seq.AppendInterval(_promptHoldBeforeRevealSeconds);
+        seq.AppendCallback(SetPromptTextForReveal);
         var hasRevealTween = false;
         if (_promptPromptMask != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
         if (_promptBannedMask != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptMaskTitleText != null)
-            AddPromptRevealTween(seq, ref hasRevealTween, _promptMaskTitleText.rectTransform.DOAnchorPosX(GetPromptMaskTitleTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptMaskBannedText != null)
-            AddPromptRevealTween(seq, ref hasRevealTween, _promptMaskBannedText.rectTransform.DOAnchorPosX(GetPromptMaskBannedTextTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
+        if (_promptTitleText != null)
+            AddPromptRevealTween(seq, ref hasRevealTween, _promptTitleText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
+        if (_promptBannedText != null)
+            AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
 
         seq.OnComplete(() =>
         {
-            if (_promptShowcaseBackground != null)
-                _promptShowcaseBackground.color = _promptPaperColor;
+            StartCoroutine(AutoGameplayAfterPromptRoutine());
         });
 
         _currentState = MainUIState.PromptShowcase;
+    }
+
+    IEnumerator AutoGameplayAfterPromptRoutine()
+    {
+        yield return new WaitForSeconds(_promptAutoGameplayDelay);
+        if (_currentState == MainUIState.PromptShowcase)
+            TransitionToGameplay();
     }
 
     void AddPromptEnterTween(Sequence seq, ref bool hasEnterTween, Tween tween)
@@ -667,24 +858,101 @@ public class MainUIController : MonoBehaviour
         }
     }
 
-    [ContextMenu("Build Prompt Showcase View")]
-    void BuildPromptShowcaseView()
+    [ContextMenu("Build Shared Prompt Elements")]
+    void BuildPromptSharedView()
     {
-        EnsurePromptShowcaseView();
+        EnsurePromptSharedView();
         PreparePromptShowcaseStart();
-        if (_promptShowcaseGroup != null)
-            _promptShowcaseGroup.alpha = 1f;
+        if (_promptSharedGroup != null)
+            _promptSharedGroup.alpha = 1f;
 #if UNITY_EDITOR
         UnityEditor.EditorUtility.SetDirty(this);
-        if (_promptShowcaseRoot != null)
-            UnityEditor.EditorUtility.SetDirty(_promptShowcaseRoot.gameObject);
+        if (_promptSharedGroupRect != null)
+            UnityEditor.EditorUtility.SetDirty(_promptSharedGroupRect.gameObject);
 #endif
     }
 
     [ContextMenu("Transition To Gameplay")]
     public void TransitionToGameplay()
     {
+        if (_currentState == MainUIState.PromptShowcase)
+        {
+            TransitionFromPromptShowcaseToGameplay();
+            return;
+        }
+
         TransitionToConfiguredState(MainUIState.Gameplay);
+    }
+
+    void TransitionFromPromptShowcaseToGameplay()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        EnsurePromptSharedView();
+        EnsureGameplayElementsView();
+        PrepareGameplayStart();
+
+        if (_gameplayElementsGroupRect != null)
+            _gameplayElementsGroupRect.SetAsLastSibling();
+        if (_promptSharedGroupRect != null)
+            _promptSharedGroupRect.SetAsLastSibling();
+        SetGameplayInputFieldSiblingOrder();
+        SetGameplayPlayerIconSiblingOrder();
+        SetOptionalGameObjectActive(_promptSharedBackground, false);
+
+        var seq = DOTween.Sequence().SetId(this);
+        if (_gameplayElementsGroup != null)
+            seq.Append(_gameplayElementsGroup.DOFade(1f, _gameplayFadeDuration).SetEase(_ease));
+
+        AddPromptToGameplayTween(seq);
+        AddGameplayInputFieldTween(seq);
+        AddGameplayPlayerIconEnterTween(seq, _waitingP1Group);
+        AddGameplayPlayerIconEnterTween(seq, _waitingP2Group);
+
+        seq.OnComplete(() =>
+        {
+            SetStateVisibilityImmediate(MainUIState.Gameplay);
+            if (_promptSharedGroup != null)
+                _promptSharedGroup.alpha = 1f;
+            SetSharedPromptVisibleForGameplay();
+            SetGameplayInputFieldVisible();
+            SetGameplayPlayerIconsVisible();
+            StartGameplayTimerPreview();
+            FocusGameplayInputField();
+        });
+
+        _currentState = MainUIState.Gameplay;
+    }
+
+    void AddPromptToGameplayTween(Sequence seq)
+    {
+        if (seq == null) return;
+
+        if (_promptTitleText != null)
+        {
+            _promptTitleText.alignment = TextAlignmentOptions.Left;
+            seq.Join(_promptTitleText.rectTransform.DOAnchorPos(GetGameplayPromptPosition(), _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(_promptTitleText.rectTransform.DOSizeDelta(new Vector2(1300f, 190f), _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(DOTween.To(() => _promptTitleText.fontSize, x => _promptTitleText.fontSize = x, 150f, _gameplayFadeDuration).SetEase(_ease));
+        }
+
+        if (_promptBannedText != null)
+        {
+            _promptBannedText.alignment = TextAlignmentOptions.Left;
+            seq.Join(_promptBannedText.rectTransform.DOAnchorPos(GetGameplayBannedLabelPosition(), _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(_promptBannedText.rectTransform.DOSizeDelta(new Vector2(1000f, 80f), _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(DOTween.To(() => _promptBannedText.fontSize, x => _promptBannedText.fontSize = x, 48f, _gameplayFadeDuration).SetEase(_ease));
+        }
+    }
+
+    void AddGameplayPlayerIconEnterTween(Sequence seq, CanvasGroup group)
+    {
+        if (seq == null || group == null) return;
+        if (!(group.transform is RectTransform rect)) return;
+
+        seq.Join(group.DOFade(1f, _gameplayFadeDuration).SetEase(_ease));
+        seq.Join(rect.DOAnchorPosY(rect.anchoredPosition.y + _gameplaySlideOffset, _gameplayFadeDuration).SetEase(_ease));
     }
 
     [ContextMenu("Transition To Round Result")]
@@ -707,9 +975,11 @@ public class MainUIController : MonoBehaviour
         if (_hintCycler != null) _hintCycler.StopCycling();
 
         var previousState = _currentState;
+        EnsureGeneratedStateView(previousState);
+        PrepareGeneratedStateTarget(targetState);
+
         var seq = DOTween.Sequence().SetId(this);
         FadeStateDifference(seq, _currentState, targetState);
-        AddPromptShowcaseVisibilityTween(seq, previousState, targetState);
 
         var animationSet = GetStateAnimationSet(targetState);
         if (animationSet != null)
@@ -718,6 +988,15 @@ public class MainUIController : MonoBehaviour
             AddCanvasGroupTweens(seq, animationSet.canvasGroupTargets);
             ResetTypewriters(animationSet.typewriterTargets);
             StartCoroutine(RevealTypewritersRoutine(animationSet.typewriterTargets));
+        }
+
+        if (targetState == MainUIState.Gameplay)
+        {
+            seq.OnComplete(() =>
+            {
+                StartGameplayTimerPreview();
+                FocusGameplayInputField();
+            });
         }
     }
 
@@ -742,7 +1021,7 @@ public class MainUIController : MonoBehaviour
 
         yield return new WaitForSeconds(_waitingPanelRevealDuration + _waitingContentGapAfterReveal);
 
-        // Typewriter sequence: title → room id → hint, with P1/P2 fading in mid-sequence
+        // Typewriter sequence: title -> room id -> hint, with P1/P2 fading in mid-sequence
         // 1) "waiting.." typewriter
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 1f;
         if (_waitingTitleTypewriter != null)
@@ -776,11 +1055,14 @@ public class MainUIController : MonoBehaviour
             yield return new WaitUntil(() => !_waitingHintTypewriter.IsPlaying);
         }
 
-        // Show placeholder ("ready") in the bottom strip but disable typing —
+        // Show placeholder ("ready") in the bottom strip but disable typing.
         // "ready" is captured elsewhere (key listener), the InputField is now
         // purely a visual element.
         if (_inputFieldPlaceholderText != null)
+        {
             _inputFieldPlaceholderText.text = _waitingPlaceholder;
+            _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
+        }
         if (_inputFieldContentGroup != null)
             _inputFieldContentGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
         if (_inputField != null)
@@ -870,6 +1152,7 @@ public class MainUIController : MonoBehaviour
         if (_waitingRoomIdTypewriter != null) _waitingRoomIdTypewriter.Hide();
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
         if (_waitingHintTypewriter != null) _waitingHintTypewriter.Hide();
+        ConfigureWaitingPlayerIconsLayout();
         if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
         if (_loadingScreenRect != null)
@@ -877,137 +1160,136 @@ public class MainUIController : MonoBehaviour
         if (_loadingScreenGroup != null)
             _loadingScreenGroup.alpha = 0f;
 
-        EnsurePromptShowcaseView();
+        EnsurePromptSharedView();
         PreparePromptShowcaseStart();
-        if (_promptShowcaseGroup != null)
-            _promptShowcaseGroup.alpha = 0f;
+        if (_promptSharedGroup != null)
+            _promptSharedGroup.alpha = 0f;
+
+        EnsureGameplayElementsView();
+        PrepareGameplayStart();
+        if (_gameplayElementsGroup != null)
+            _gameplayElementsGroup.alpha = 0f;
     }
 
-    void EnsurePromptShowcaseView()
+    void EnsurePromptSharedView()
     {
-        if (_promptShowcaseRoot == null)
-            _promptShowcaseRoot = FindChildRect(transform, "PromptShowcaseRoot");
-        if (_promptShowcaseRoot == null)
-            _promptShowcaseRoot = CreateRect("PromptShowcaseRoot", transform);
+        if (_promptSharedGroupRect == null)
+            _promptSharedGroupRect = FindPromptSharedRoot(true);
+        if (_promptSharedGroupRect == null)
+            _promptSharedGroupRect = CreateRect(PromptSharedGroupName, transform);
+        if (_promptSharedGroupRect == null) return;
 
-        StretchToParent(_promptShowcaseRoot);
+        StretchToParent(_promptSharedGroupRect);
 
-        if (_promptShowcaseGroup == null)
-            _promptShowcaseGroup = _promptShowcaseRoot.GetComponent<CanvasGroup>();
-        if (_promptShowcaseGroup == null)
-            _promptShowcaseGroup = _promptShowcaseRoot.gameObject.AddComponent<CanvasGroup>();
+        if (_promptSharedGroup == null)
+            _promptSharedGroup = _promptSharedGroupRect.GetComponent<CanvasGroup>();
+        if (_promptSharedGroup == null)
+        {
+            if (!CanCreatePrefabOwnedUi($"{PromptSharedGroupName} CanvasGroup")) return;
+            _promptSharedGroup = _promptSharedGroupRect.gameObject.AddComponent<CanvasGroup>();
+        }
 
-        if (_promptShowcaseBackground == null)
-            _promptShowcaseBackground = GetOrCreateImage("PromptBackground", _promptShowcaseRoot, _promptPaperColor).image;
-        StretchToParent(_promptShowcaseBackground.rectTransform);
+        if (_promptSharedBackground == null)
+        {
+            var promptBackgroundRect = FindChildRect(_promptSharedGroupRect, "PromptBackground");
+            if (promptBackgroundRect != null)
+                _promptSharedBackground = promptBackgroundRect.GetComponent<Image>();
+        }
+        if (_promptSharedBackground != null)
+        {
+            StretchToParent(_promptSharedBackground.rectTransform);
+            _promptSharedBackground.gameObject.SetActive(false);
+        }
 
         var fontSource = GetComponentInChildren<TMP_Text>(true);
         _promptTitleText = GetOrCreatePromptText(
             _promptTitleText,
+            _promptSharedGroupRect,
             "PromptTitleText",
             _promptText,
-            new Vector2(-60f, -25f),
+            GetPromptTitlePosition(),
             new Vector2(1400f, 260f),
             184f,
-            fontSource);
+            fontSource,
+            TextAlignmentOptions.Left);
         _promptBannedText = GetOrCreatePromptText(
             _promptBannedText,
+            _promptSharedGroupRect,
             "PromptBannedText",
             "banned letter \"i\"",
-            new Vector2(160f, -210f),
+            GetPromptBannedTextPosition(),
             new Vector2(1100f, 100f),
             58f,
-            fontSource);
-        _promptMaskTitleText = GetOrCreatePromptText(
-            _promptMaskTitleText,
-            "PromptMaskTitleText",
-            _promptMaskText,
-            new Vector2(-60f, -25f),
-            new Vector2(1400f, 260f),
-            184f,
-            fontSource);
-        _promptMaskBannedText = GetOrCreatePromptText(
-            _promptMaskBannedText,
-            "PromptMaskBannedText",
-            _promptMaskBannedTextValue,
-            new Vector2(160f, -210f),
-            new Vector2(1100f, 100f),
-            58f,
-            fontSource);
-
+            fontSource,
+            TextAlignmentOptions.Left);
         if (_promptPromptMask == null)
-            _promptPromptMask = GetOrCreateImage("PromptMainBlackMask", _promptShowcaseRoot, _promptInkColor).rect;
+            _promptPromptMask = GetOrCreateImage("PromptMainBlackMask", _promptSharedGroupRect, _promptInkColor).rect;
         if (_promptBannedMask == null)
-            _promptBannedMask = GetOrCreateImage("PromptBannedBlackMask", _promptShowcaseRoot, _promptInkColor).rect;
+            _promptBannedMask = GetOrCreateImage("PromptBannedBlackMask", _promptSharedGroupRect, _promptInkColor).rect;
     }
 
     void PreparePromptShowcaseStart()
     {
-        EnsurePromptShowcaseView();
+        EnsurePromptSharedView();
 
-        if (_promptShowcaseGroup != null)
+        if (_promptSharedGroup != null)
         {
-            _promptShowcaseGroup.alpha = 1f;
-            _promptShowcaseGroup.interactable = false;
-            _promptShowcaseGroup.blocksRaycasts = false;
+            _promptSharedGroup.alpha = 1f;
+            _promptSharedGroup.interactable = false;
+            _promptSharedGroup.blocksRaycasts = false;
         }
 
-        if (_promptShowcaseBackground != null)
-            _promptShowcaseBackground.color = _promptPaperColor;
+        SetOptionalGameObjectActive(_promptSharedBackground, false);
 
         if (_promptTitleText != null)
         {
-            _promptTitleText.color = _promptInkColor;
-            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.richText = false;
+            _promptTitleText.overrideColorTags = true;
+            _promptTitleText.color = _promptMaskTitleColor;
+            _promptTitleText.text = _promptMaskText;
             _promptTitleText.alpha = 0f;
+            _promptTitleText.fontSize = 184f;
+            _promptTitleText.alignment = TextAlignmentOptions.Left;
+            _promptTitleText.rectTransform.anchoredPosition = GetPromptTitlePosition();
+            _promptTitleText.rectTransform.sizeDelta = new Vector2(1400f, 260f);
+            _promptTitleText.transform.SetAsLastSibling();
         }
         if (_promptBannedText != null)
         {
-            _promptBannedText.color = _promptInkColor;
-            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.richText = false;
+            _promptBannedText.overrideColorTags = true;
+            _promptBannedText.color = _promptMaskBannedTextColor;
+            _promptBannedText.text = _promptMaskBannedTextValue;
             _promptBannedText.alpha = 0f;
-        }
-        if (_promptMaskTitleText != null)
-        {
-            _promptMaskTitleText.richText = false;
-            _promptMaskTitleText.overrideColorTags = true;
-            _promptMaskTitleText.color = _promptMaskTitleColor;
-            _promptMaskTitleText.text = _promptMaskText;
-            _promptMaskTitleText.alpha = 0f;
-            _promptMaskTitleText.rectTransform.anchoredPosition = new Vector2(GetPromptMaskTitleTargetX(), -25f);
-            _promptMaskTitleText.transform.SetAsLastSibling();
-        }
-        if (_promptMaskBannedText != null)
-        {
-            _promptMaskBannedText.richText = false;
-            _promptMaskBannedText.overrideColorTags = true;
-            _promptMaskBannedText.color = _promptMaskBannedTextColor;
-            _promptMaskBannedText.text = _promptMaskBannedTextValue;
-            _promptMaskBannedText.alpha = 0f;
-            _promptMaskBannedText.rectTransform.anchoredPosition = new Vector2(GetPromptMaskBannedTextTargetX(), -210f);
-            _promptMaskBannedText.transform.SetAsLastSibling();
+            _promptBannedText.fontSize = 58f;
+            _promptBannedText.alignment = TextAlignmentOptions.Left;
+            _promptBannedText.rectTransform.anchoredPosition = GetPromptBannedTextPosition();
+            _promptBannedText.rectTransform.sizeDelta = new Vector2(1100f, 100f);
+            _promptBannedText.transform.SetAsLastSibling();
         }
 
         if (_promptPromptMask != null)
         {
+            _promptPromptMask.gameObject.SetActive(true);
             _promptPromptMask.anchorMin = new Vector2(0.5f, 0.5f);
             _promptPromptMask.anchorMax = new Vector2(0.5f, 0.5f);
             _promptPromptMask.pivot = new Vector2(0.5f, 0.5f);
             _promptPromptMask.anchoredPosition = new Vector2(GetPromptMaskMainStartX(), 65f);
             _promptPromptMask.sizeDelta = new Vector2(5000f, 397f);
             _promptPromptMask.localScale = Vector3.one;
-            _promptPromptMask.transform.SetSiblingIndex(Mathf.Max(0, _promptShowcaseRoot.childCount - 3));
+            _promptPromptMask.transform.SetSiblingIndex(Mathf.Max(0, _promptSharedGroupRect.childCount - 3));
         }
 
         if (_promptBannedMask != null)
         {
+            _promptBannedMask.gameObject.SetActive(true);
             _promptBannedMask.anchorMin = new Vector2(0.5f, 0.5f);
             _promptBannedMask.anchorMax = new Vector2(0.5f, 0.5f);
             _promptBannedMask.pivot = new Vector2(0.5f, 0.5f);
             _promptBannedMask.anchoredPosition = new Vector2(GetPromptMaskBannedStartX(), -185f);
             _promptBannedMask.sizeDelta = new Vector2(1980f, 133f);
             _promptBannedMask.localScale = Vector3.one;
-            _promptBannedMask.transform.SetSiblingIndex(Mathf.Max(0, _promptShowcaseRoot.childCount - 3));
+            _promptBannedMask.transform.SetSiblingIndex(Mathf.Max(0, _promptSharedGroupRect.childCount - 3));
         }
     }
 
@@ -1015,15 +1297,29 @@ public class MainUIController : MonoBehaviour
     float GetPromptMaskMainStartX() => GetPromptMaskMainTargetX() - 5000f;
     float GetPromptMaskBannedTargetX() => -30f;
     float GetPromptMaskBannedStartX() => GetPromptMaskBannedTargetX() - 1980f;
-    float GetPromptMaskTitleTargetX() => -60f;
-    float GetPromptMaskBannedTextTargetX() => 160f;
+    Vector2 GetPromptTitlePosition() => new Vector2(24f, 65f);
+    Vector2 GetPromptBannedTextPosition() => new Vector2(297f, -185f);
 
-    void SetPromptBaseTextVisible()
+    void SetPromptTextForReveal()
     {
         if (_promptTitleText != null)
+        {
+            _promptTitleText.richText = true;
+            _promptTitleText.overrideColorTags = false;
+            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.color = _promptMaskTitleColor;
+            _promptTitleText.alignment = TextAlignmentOptions.Left;
             _promptTitleText.alpha = 1f;
+        }
         if (_promptBannedText != null)
+        {
+            _promptBannedText.richText = true;
+            _promptBannedText.overrideColorTags = false;
+            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.color = _promptMaskBannedTextColor;
+            _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.alpha = 1f;
+        }
     }
 
     string GetBannedLetterRevealText()
@@ -1070,26 +1366,35 @@ public class MainUIController : MonoBehaviour
         var rect = FindChildRect(parent, childName);
         if (rect == null)
             rect = CreateRect(childName, parent);
+        if (rect == null) return (null, null);
 
         var image = rect.GetComponent<Image>();
         if (image == null)
+        {
+            if (!CanCreatePrefabOwnedUi($"{childName} Image")) return (rect, null);
             image = rect.gameObject.AddComponent<Image>();
+        }
 
         image.color = color;
         image.raycastTarget = false;
         return (rect, image);
     }
 
-    TMP_Text GetOrCreatePromptText(TMP_Text current, string childName, string text, Vector2 anchoredPos, Vector2 size, float fontSize, TMP_Text fontSource)
+    TMP_Text GetOrCreatePromptText(TMP_Text current, RectTransform parent, string childName, string text, Vector2 anchoredPos, Vector2 size, float fontSize, TMP_Text fontSource, TextAlignmentOptions alignment = TextAlignmentOptions.Center)
     {
         if (current == null)
         {
-            var rect = FindChildRect(_promptShowcaseRoot, childName);
+            var rect = FindChildRect(parent, childName);
             if (rect == null)
-                rect = CreateRect(childName, _promptShowcaseRoot);
+                rect = CreateRect(childName, parent);
+            if (rect == null) return null;
+
             current = rect.GetComponent<TMP_Text>();
             if (current == null)
+            {
+                if (!CanCreatePrefabOwnedUi($"{childName} TextMeshProUGUI")) return null;
                 current = rect.gameObject.AddComponent<TextMeshProUGUI>();
+            }
         }
 
         var textRect = current.rectTransform;
@@ -1105,7 +1410,7 @@ public class MainUIController : MonoBehaviour
         current.fontSize = fontSize;
         current.enableAutoSizing = false;
         current.richText = true;
-        current.alignment = TextAlignmentOptions.Center;
+        current.alignment = alignment;
         current.raycastTarget = false;
         if (fontSource != null && fontSource.font != null)
         {
@@ -1114,6 +1419,567 @@ public class MainUIController : MonoBehaviour
         }
 
         return current;
+    }
+
+    void EnsureGameplayElementsView()
+    {
+        if (_gameplayElementsGroupRect == null)
+            _gameplayElementsGroupRect = FindGameplayElementsRoot(true);
+        if (_gameplayElementsGroupRect == null)
+            _gameplayElementsGroupRect = CreateRect(GameplayElementsGroupName, transform);
+        if (_gameplayElementsGroupRect == null) return;
+
+        StretchToParent(_gameplayElementsGroupRect);
+
+        if (_gameplayElementsGroup == null)
+            _gameplayElementsGroup = _gameplayElementsGroupRect.GetComponent<CanvasGroup>();
+        if (_gameplayElementsGroup == null)
+        {
+            if (!CanCreatePrefabOwnedUi($"{GameplayElementsGroupName} CanvasGroup")) return;
+            _gameplayElementsGroup = _gameplayElementsGroupRect.gameObject.AddComponent<CanvasGroup>();
+        }
+
+        if (_gameplayBackground == null)
+        {
+            var gameplayBackgroundRect = FindChildRect(_gameplayElementsGroupRect, "GameplayBackground");
+            if (gameplayBackgroundRect != null)
+                _gameplayBackground = gameplayBackgroundRect.GetComponent<Image>();
+        }
+        if (_gameplayBackground != null)
+        {
+            StretchToParent(_gameplayBackground.rectTransform);
+            _gameplayBackground.gameObject.SetActive(false);
+        }
+
+        var fontSource = GetComponentInChildren<TMP_Text>(true);
+
+        if (_gameplayTimerBar == null)
+            _gameplayTimerBar = GetOrCreateImage("GameplayTimerBar", _gameplayElementsGroupRect, new Color(0.52156866f, 0.52156866f, 0.52156866f, 1f)).rect;
+
+        if (_gameplayP1LetterGroup == null)
+            _gameplayP1LetterGroup = CreateRect("GameplayP1LetterGroup", _gameplayElementsGroupRect);
+        if (_gameplayP2LetterGroup == null)
+            _gameplayP2LetterGroup = CreateRect("GameplayP2LetterGroup", _gameplayElementsGroupRect);
+
+        PrepareGameplayInputFieldStart();
+        HideDeprecatedGameplayPlayerLabelCopies();
+    }
+
+    void PrepareGameplayStart()
+    {
+        EnsureGameplayElementsView();
+
+        if (_gameplayElementsGroup != null)
+        {
+            _gameplayElementsGroup.alpha = 0f;
+            _gameplayElementsGroup.interactable = false;
+            _gameplayElementsGroup.blocksRaycasts = false;
+        }
+
+        SetOptionalGameObjectActive(_gameplayBackground, false);
+
+        ConfigureRect(_gameplayTimerBar, new Vector2(-900f, -322.5f), new Vector2(1620f, 35f), new Vector2(0f, 0.5f));
+        ConfigureRect(_gameplayP1LetterGroup, GetGameplayP1LetterGroupPosition(), new Vector2(520f, 50f), new Vector2(0f, 0.5f));
+        ConfigureRect(_gameplayP2LetterGroup, GetGameplayP2LetterGroupPosition(), new Vector2(520f, 50f), new Vector2(0f, 0.5f));
+
+        RefreshGameplayLetterBlocks();
+        PrepareGameplayInputFieldStart();
+        PrepareGameplayPlayerIconsStart();
+        HideDeprecatedGameplayPlayerLabelCopies();
+    }
+
+    void PrepareGameplayText(TMP_Text text, string value, Color color, Vector2 targetPosition, TextAlignmentOptions alignment = TextAlignmentOptions.Center)
+    {
+        if (text == null) return;
+
+        text.richText = true;
+        text.overrideColorTags = false;
+        text.alignment = alignment;
+        text.color = color;
+        text.text = value;
+        text.alpha = 0f;
+        text.rectTransform.anchoredPosition = targetPosition - new Vector2(0f, _gameplaySlideOffset);
+    }
+
+    Vector2 GetGameplayPromptPosition() => new Vector2(-250f, 330f);
+    Vector2 GetGameplayBannedLabelPosition() => new Vector2(-392f, 230f);
+    Vector2 GetGameplayInputFieldPosition() => new Vector2(0f, -420f);
+    Vector2 GetGameplayInputFieldSize() => new Vector2(1800f, 120f);
+    Vector2 GetGameplayP1LetterGroupPosition() => new Vector2(-760f, GetGameplayP1IconPosition().y);
+    Vector2 GetGameplayP2LetterGroupPosition() => new Vector2(-760f, GetGameplayP2IconPosition().y);
+
+    void SetSharedPromptVisibleForGameplay()
+    {
+        SetOptionalGameObjectActive(_promptSharedBackground, false);
+        if (_promptPromptMask != null) _promptPromptMask.gameObject.SetActive(false);
+        if (_promptBannedMask != null) _promptBannedMask.gameObject.SetActive(false);
+
+        if (_promptTitleText != null)
+        {
+            _promptTitleText.alignment = TextAlignmentOptions.Left;
+            _promptTitleText.color = _promptInkColor;
+            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.fontSize = 150f;
+            _promptTitleText.rectTransform.sizeDelta = new Vector2(1300f, 190f);
+            _promptTitleText.alpha = 1f;
+            _promptTitleText.rectTransform.anchoredPosition = GetGameplayPromptPosition();
+        }
+        if (_promptBannedText != null)
+        {
+            _promptBannedText.alignment = TextAlignmentOptions.Left;
+            _promptBannedText.color = _promptInkColor;
+            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.fontSize = 48f;
+            _promptBannedText.rectTransform.sizeDelta = new Vector2(1000f, 80f);
+            _promptBannedText.alpha = 1f;
+            _promptBannedText.rectTransform.anchoredPosition = GetGameplayBannedLabelPosition();
+        }
+
+        SetGameplayInputFieldVisible();
+        HideDeprecatedGameplayPlayerLabelCopies();
+    }
+
+    void PrepareGameplayInputFieldStart()
+    {
+        if (_inputFieldRect != null)
+        {
+            ConfigureRect(_inputFieldRect, GetGameplayInputFieldPosition() - new Vector2(0f, _gameplaySlideOffset), GetGameplayInputFieldSize(), new Vector2(0.5f, 0.5f));
+            SetGameplayInputFieldSiblingOrder();
+        }
+
+        ConfigureGameplayInputFieldContent(0f);
+    }
+
+    void SetGameplayInputFieldVisible()
+    {
+        if (_inputFieldRect != null)
+        {
+            ConfigureRect(_inputFieldRect, GetGameplayInputFieldPosition(), GetGameplayInputFieldSize(), new Vector2(0.5f, 0.5f));
+            SetGameplayInputFieldSiblingOrder();
+        }
+
+        ConfigureGameplayInputFieldContent(1f);
+    }
+
+    void SetGameplayInputFieldSiblingOrder()
+    {
+        if (_inputFieldRect != null)
+            _inputFieldRect.SetAsLastSibling();
+    }
+
+    void AddGameplayInputFieldTween(Sequence seq)
+    {
+        if (seq == null || _inputFieldRect == null) return;
+
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.alpha = 0f;
+            inputGroup.interactable = false;
+            inputGroup.blocksRaycasts = false;
+            seq.Join(inputGroup.DOFade(1f, _gameplayFadeDuration).SetEase(_ease));
+        }
+        seq.Join(_inputFieldRect.DOAnchorPos(GetGameplayInputFieldPosition(), _gameplayFadeDuration).SetEase(_ease));
+        seq.Join(_inputFieldRect.DOSizeDelta(GetGameplayInputFieldSize(), _gameplayFadeDuration).SetEase(_ease));
+        if (_inputFieldContentGroup != null)
+            seq.Join(_inputFieldContentGroup.DOFade(1f, _gameplayFadeDuration).SetEase(_ease));
+    }
+
+    void ConfigureGameplayInputFieldContent(float alpha)
+    {
+        if (_inputField != null)
+        {
+            _inputField.enabled = true;
+            _inputField.interactable = true;
+            _inputField.transition = Selectable.Transition.None;
+            _inputField.readOnly = false;
+            _inputField.SetTextWithoutNotify(string.Empty);
+            if (_inputField.targetGraphic != null)
+                _inputField.targetGraphic.color = _promptInkColor;
+        }
+        if (_inputFieldPlaceholderText != null)
+        {
+            _inputFieldPlaceholderText.text = _gameplayInputPlaceholder;
+            _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
+        }
+        if (_inputFieldContentGroup != null)
+        {
+            _inputFieldContentGroup.alpha = alpha;
+            _inputFieldContentGroup.interactable = false;
+            _inputFieldContentGroup.blocksRaycasts = false;
+        }
+
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.alpha = alpha;
+            inputGroup.interactable = alpha > 0f;
+            inputGroup.blocksRaycasts = alpha > 0f;
+        }
+
+        _gameplayP1Word = _inputField != null ? _inputField.text : "";
+        RefreshGameplayLetterBlocks();
+    }
+
+    void FocusGameplayInputField()
+    {
+        if (_inputField == null) return;
+
+        StartCoroutine(FocusGameplayInputFieldNextFrame());
+    }
+
+    IEnumerator FocusGameplayInputFieldNextFrame()
+    {
+        yield return null;
+
+        if (_inputField == null) yield break;
+
+        _inputField.enabled = true;
+        _inputField.interactable = true;
+        _inputField.readOnly = false;
+
+        if (EventSystem.current != null)
+            EventSystem.current.SetSelectedGameObject(_inputField.gameObject);
+
+        _inputField.Select();
+        _inputField.ActivateInputField();
+    }
+
+    void PrepareGameplayPlayerIconsStart()
+    {
+        ConfigureGameplayPlayerIcon(_waitingP1Group, GetGameplayP1IconPosition() - new Vector2(0f, _gameplaySlideOffset), true);
+        ConfigureGameplayPlayerIcon(_waitingP2Group, GetGameplayP2IconPosition() - new Vector2(0f, _gameplaySlideOffset), false);
+        if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
+        if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
+    }
+
+    void SetGameplayPlayerIconsVisible()
+    {
+        ConfigureGameplayPlayerIcon(_waitingP1Group, GetGameplayP1IconPosition(), true);
+        ConfigureGameplayPlayerIcon(_waitingP2Group, GetGameplayP2IconPosition(), false);
+    }
+
+    void ConfigureGameplayPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
+    {
+        if (group == null || !(group.transform is RectTransform rect)) return;
+
+        group.alpha = 1f;
+        group.interactable = false;
+        group.blocksRaycasts = false;
+        ConfigureRect(rect, anchoredPosition, new Vector2(100f, 100f), new Vector2(0.5f, 0.5f));
+        ConfigurePlayerIconBoxForGameplay(rect);
+        ConfigurePlayerIconIndicatorForGameplay(rect, showLocalIndicator);
+        rect.SetAsLastSibling();
+    }
+
+    void SetGameplayPlayerIconSiblingOrder()
+    {
+        if (_waitingP1Group != null)
+            _waitingP1Group.transform.SetAsLastSibling();
+        if (_waitingP2Group != null)
+            _waitingP2Group.transform.SetAsLastSibling();
+    }
+
+    void ConfigurePlayerIconIndicatorForGameplay(RectTransform playerIconRoot, bool showLocalIndicator)
+    {
+        if (playerIconRoot == null) return;
+
+        var indicator = FindChildRect(playerIconRoot, "YouIndicator");
+        var triangle = FindChildRect(indicator != null ? indicator : playerIconRoot, "YouTriangle");
+        var youText = FindChildRect(indicator != null ? indicator : playerIconRoot, "YouText");
+
+        if (indicator != null)
+        {
+            indicator.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+        }
+        if (triangle != null)
+        {
+            triangle.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+            var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
+            if (triangleGraphic != null)
+            {
+                triangleGraphic.PointingDirection = TriangleGraphic.Direction.Right;
+                triangleGraphic.color = _promptInkColor;
+                triangleGraphic.raycastTarget = false;
+            }
+        }
+        if (youText != null)
+            youText.gameObject.SetActive(false);
+    }
+
+    void ConfigurePlayerIconBoxForGameplay(RectTransform playerIconRoot)
+    {
+        if (playerIconRoot == null) return;
+
+        var box = playerIconRoot.GetComponentInChildren<BoxFrameGraphic>(true);
+        if (box != null)
+        {
+            box.Thickness = 10f;
+            box.InsetFromEdge = true;
+            box.FillColor = _promptInkColor;
+
+            if (box.transform is RectTransform boxRect)
+                StretchToParent(boxRect);
+        }
+
+        var idText = box != null ? box.GetComponentInChildren<TMP_Text>(true) : null;
+        if (idText != null)
+        {
+            idText.enableAutoSizing = false;
+            idText.fontSize = 51f;
+            idText.characterSpacing = 0f;
+            idText.alignment = TextAlignmentOptions.Center;
+            idText.margin = Vector4.zero;
+            idText.text = playerIconRoot.name.Contains("2") ? "P2" : "P1";
+            if (idText.rectTransform != null)
+                StretchToParent(idText.rectTransform);
+        }
+    }
+
+    void ConfigureWaitingPlayerIconsLayout()
+    {
+        ConfigureWaitingPlayerIcon(_waitingP1Group, new Vector2(-687.54f, -122.601395f), true);
+        ConfigureWaitingPlayerIcon(_waitingP2Group, new Vector2(-399.5f, -122.601395f), false);
+    }
+
+    void ConfigureWaitingPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
+    {
+        if (group == null || !(group.transform is RectTransform rect)) return;
+
+        ConfigureRect(rect, anchoredPosition, new Vector2(220.1179f, 214.7207f), new Vector2(0.5f, 0.5f));
+        ConfigurePlayerIconBoxForWaiting(rect);
+        ConfigurePlayerIconIndicatorForWaiting(rect, showLocalIndicator);
+    }
+
+    void ConfigurePlayerIconBoxForWaiting(RectTransform playerIconRoot)
+    {
+        if (playerIconRoot == null) return;
+
+        var box = playerIconRoot.GetComponentInChildren<BoxFrameGraphic>(true);
+        if (box != null)
+        {
+            box.Thickness = 4f;
+            box.InsetFromEdge = true;
+            box.FillColor = Color.clear;
+        }
+    }
+
+    void ConfigurePlayerIconIndicatorForWaiting(RectTransform playerIconRoot, bool showLocalIndicator)
+    {
+        if (playerIconRoot == null) return;
+
+        var indicator = FindChildRect(playerIconRoot, "YouIndicator");
+        var triangle = FindChildRect(indicator != null ? indicator : playerIconRoot, "YouTriangle");
+        var youText = FindChildRect(indicator != null ? indicator : playerIconRoot, "YouText");
+
+        if (indicator != null)
+        {
+            indicator.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(indicator, new Vector2(0f, -148f), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
+        }
+        if (triangle != null)
+        {
+            triangle.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(triangle, new Vector2(0f, -8f), new Vector2(27.0481f, 19.1138f), new Vector2(0.5f, 0.5f));
+            var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
+            if (triangleGraphic != null)
+            {
+                triangleGraphic.PointingDirection = TriangleGraphic.Direction.Up;
+                triangleGraphic.color = _promptPaperColor;
+                triangleGraphic.raycastTarget = true;
+            }
+        }
+        if (youText != null)
+        {
+            youText.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(youText, new Vector2(1.9196f, -32f), new Vector2(71f, 48.8f), new Vector2(0.5f, 0.5f));
+        }
+    }
+
+    Vector2 GetGameplayP1IconPosition() => new Vector2(-840f, -40f);
+    Vector2 GetGameplayP2IconPosition() => new Vector2(-840f, -197.5f);
+
+    void HideDeprecatedGameplayPlayerLabelCopies()
+    {
+        SetOptionalGameObjectActive(_gameplayP1Box, false);
+        SetOptionalGameObjectActive(_gameplayP2Box, false);
+        SetOptionalGameObjectActive(_gameplayP1Text, false);
+        SetOptionalGameObjectActive(_gameplayP2Text, false);
+    }
+
+    void SetOptionalGameObjectActive(Component component, bool active)
+    {
+        if (component != null)
+            component.gameObject.SetActive(active);
+    }
+
+    void StartGameplayTimerPreview()
+    {
+        if (_gameplayTimerBar == null) return;
+
+        _gameplayTimerBar.DOKill();
+        _gameplayTimerBar.DOSizeDelta(new Vector2(_gameplayTimerPreviewWidth, _gameplayTimerBar.sizeDelta.y), _gameplayTimerDrainPreviewDuration)
+            .SetEase(Ease.Linear)
+            .SetId(this);
+    }
+
+    public void SetGameplayPlayerWords(string p1Word, string p2Word)
+    {
+        _gameplayP1Word = p1Word ?? "";
+        _gameplayP2Word = p2Word ?? "";
+        RefreshGameplayLetterBlocks();
+    }
+
+    public void SetGameplayPlayerWord(int playerIndex, string word)
+    {
+        if (playerIndex == 2)
+            _gameplayP2Word = word ?? "";
+        else
+            _gameplayP1Word = word ?? "";
+
+        RefreshGameplayLetterBlocks();
+    }
+
+    void RegisterGameplayInputListener()
+    {
+        if (_inputField == null || _gameplayInputListenerRegistered) return;
+
+        _inputField.onValueChanged.AddListener(OnGameplayInputValueChanged);
+        _gameplayInputListenerRegistered = true;
+    }
+
+    void UnregisterGameplayInputListener()
+    {
+        if (_inputField == null || !_gameplayInputListenerRegistered) return;
+
+        _inputField.onValueChanged.RemoveListener(OnGameplayInputValueChanged);
+        _gameplayInputListenerRegistered = false;
+    }
+
+    void OnGameplayInputValueChanged(string value)
+    {
+        _gameplayP1Word = value ?? "";
+        if (_currentState == MainUIState.Gameplay)
+            RefreshGameplayLetterBlocks();
+    }
+
+    void RefreshGameplayLetterBlocks()
+    {
+        var p1Count = CountLetters(_gameplayP1Word);
+        var p2Count = CountLetters(_gameplayP2Word);
+
+        UpdateGameplayLetterBlockGroup(_gameplayP1LetterGroup, p1Count, p2Count, _gameplayP1LetterColor, ContainsBannedPromptLetter(_gameplayP1Word));
+        UpdateGameplayLetterBlockGroup(_gameplayP2LetterGroup, p2Count, p1Count, _gameplayP2LetterColor, ContainsBannedPromptLetter(_gameplayP2Word));
+    }
+
+    void UpdateGameplayLetterBlockGroup(RectTransform parent, int count, int opposingCount, Color playerColor, bool hasBannedLetter)
+    {
+        if (parent == null) return;
+
+        for (var i = 0; i < parent.childCount; i++)
+        {
+            if (!(parent.GetChild(i) is RectTransform child)) continue;
+
+            var isVisible = i < count;
+            child.gameObject.SetActive(isVisible);
+
+            var image = child.GetComponent<Image>();
+            if (image != null)
+                image.DOKill();
+
+            if (!isVisible) continue;
+
+            ConfigureGameplayLetterBlockRect(child, i);
+            if (image != null)
+                ApplyGameplayLetterBlockColor(image, i, count, opposingCount, playerColor, hasBannedLetter);
+        }
+
+        for (var i = parent.childCount; i < count; i++)
+        {
+            var block = GetOrCreateImage($"LetterBlock{i + 1}", parent, _gameplayLetterNeutralColor).rect;
+            ConfigureGameplayLetterBlockRect(block, i);
+            var image = block != null ? block.GetComponent<Image>() : null;
+            if (image != null)
+                ApplyGameplayLetterBlockColor(image, i, count, opposingCount, playerColor, hasBannedLetter);
+        }
+    }
+
+    void ConfigureGameplayLetterBlockRect(RectTransform block, int index)
+    {
+        if (block == null) return;
+
+        block.anchorMin = new Vector2(0f, 0.5f);
+        block.anchorMax = new Vector2(0f, 0.5f);
+        block.pivot = new Vector2(0f, 0.5f);
+        block.anchoredPosition = new Vector2(index * _gameplayLetterBlockSpacing, 0f);
+        block.sizeDelta = _gameplayLetterBlockSize;
+        block.localScale = Vector3.one;
+    }
+
+    void ApplyGameplayLetterBlockColor(Image image, int index, int count, int opposingCount, Color playerColor, bool hasBannedLetter)
+    {
+        if (image == null) return;
+
+        image.DOKill();
+
+        if (hasBannedLetter)
+        {
+            image.color = _gameplayLetterNeutralColor;
+            image.DOColor(_gameplayBannedFlashColor, _gameplayBannedFlashDuration)
+                .SetEase(Ease.InOutSine)
+                .SetLoops(-1, LoopType.Yoyo)
+                .SetId(this);
+            return;
+        }
+
+        image.color = count > opposingCount && index >= opposingCount ? playerColor : _gameplayLetterNeutralColor;
+    }
+
+    int CountLetters(string word)
+    {
+        if (string.IsNullOrEmpty(word)) return 0;
+
+        var count = 0;
+        foreach (var c in word)
+        {
+            if (char.IsLetter(c))
+                count++;
+        }
+
+        return count;
+    }
+
+    bool ContainsBannedPromptLetter(string word)
+    {
+        if (string.IsNullOrEmpty(word) || string.IsNullOrEmpty(_promptBannedLetters))
+            return false;
+
+        foreach (var c in word)
+        {
+            if (IsBannedPromptLetter(c))
+                return true;
+        }
+
+        return false;
+    }
+
+    string GetBannedLetterQuotedText()
+    {
+        return string.IsNullOrEmpty(_promptBannedLetters) ? string.Empty : $"\"{_promptBannedLetters}\"";
+    }
+
+    void ConfigureRect(RectTransform rect, Vector2 anchoredPosition, Vector2 sizeDelta, Vector2 pivot)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = pivot;
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = sizeDelta;
+        rect.localScale = Vector3.one;
     }
 
     RectTransform FindChildRect(Transform parent, string childName)
@@ -1132,11 +1998,81 @@ public class MainUIController : MonoBehaviour
 
     RectTransform CreateRect(string childName, Transform parent)
     {
+        if (!CanCreatePrefabOwnedUi(childName)) return null;
+
         var go = new GameObject(childName, typeof(RectTransform));
         go.layer = gameObject.layer;
         var rect = go.GetComponent<RectTransform>();
         rect.SetParent(parent, false);
         return rect;
+    }
+
+    bool CanCreatePrefabOwnedUi(string itemName)
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying && CanEditPrefabAssetStructure()) return true;
+#endif
+        Debug.LogError($"MainUIController expects '{itemName}' to exist in MainUI.prefab. Runtime UI creation is disabled.");
+        return false;
+    }
+
+#if UNITY_EDITOR
+    bool CanEditPrefabAssetStructure()
+    {
+        if (s_buildingLoadedPrefabAsset)
+            return true;
+
+        if (UnityEditor.PrefabUtility.IsPartOfPrefabAsset(gameObject))
+            return true;
+
+        var prefabStage = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage();
+        return prefabStage != null
+            && prefabStage.prefabContentsRoot != null
+            && transform.IsChildOf(prefabStage.prefabContentsRoot.transform);
+    }
+#endif
+
+    void DisableSceneOwnedGeneratedUiOrphans()
+    {
+        if (!Application.isPlaying) return;
+
+        var rootObjects = gameObject.scene.GetRootGameObjects();
+        foreach (var rootObject in rootObjects)
+        {
+            if (rootObject == null || rootObject.transform == transform.root) continue;
+            if (!IsGeneratedPromptOrGameplayObjectName(rootObject.name)) continue;
+
+            rootObject.SetActive(false);
+            Debug.LogWarning($"Disabled scene-owned generated UI orphan '{rootObject.name}'. The shared prompt/gameplay UI must live under MainUI.prefab.");
+        }
+    }
+
+    bool IsGeneratedPromptOrGameplayObjectName(string objectName)
+    {
+        switch (objectName)
+        {
+            case "PromptBackground":
+            case "PromptTitleText":
+            case "PromptBannedText":
+            case "PromptMaskTitleText":
+            case "PromptMaskBannedText":
+            case "PromptMainBlackMask":
+            case "PromptBannedBlackMask":
+            case "GameplayBackground":
+            case "GameplayPromptText":
+            case "GameplayBannedLabelText":
+            case "GameplayBannedLetterText":
+            case "GameplayTimerBar":
+            case "GameplayP1Box":
+            case "GameplayP2Box":
+            case "GameplayP1LetterGroup":
+            case "GameplayP2LetterGroup":
+            case "GameplayP1Text":
+            case "GameplayP2Text":
+                return true;
+            default:
+                return false;
+        }
     }
 
     void StretchToParent(RectTransform rect)
@@ -1350,15 +2286,20 @@ public class MainUIController : MonoBehaviour
 
     CanvasGroup[] GetVisibleGroups(MainUIState state)
     {
-        if (_stateGroups == null) return new CanvasGroup[0];
+        var result = new List<CanvasGroup>();
 
-        foreach (var groupSet in _stateGroups)
+        if (_stateGroups != null)
         {
-            if (groupSet != null && groupSet.state == state)
-                return groupSet.visibleGroups ?? new CanvasGroup[0];
+            foreach (var groupSet in _stateGroups)
+            {
+                if (groupSet == null || groupSet.state != state || groupSet.visibleGroups == null) continue;
+
+                foreach (var cg in groupSet.visibleGroups)
+                    AddUniqueGroup(result, cg);
+            }
         }
 
-        return new CanvasGroup[0];
+        return result.ToArray();
     }
 
     void FadeStateDifference(Sequence seq, MainUIState from, MainUIState to)
@@ -1393,49 +2334,206 @@ public class MainUIController : MonoBehaviour
             cg.alpha = ContainsGroup(GetVisibleGroups(state), cg) && !IsManuallyRevealed(state, cg) ? 1f : 0f;
         }
 
-        if (_promptShowcaseGroup != null)
-            _promptShowcaseGroup.alpha = state == MainUIState.PromptShowcase ? 1f : 0f;
-
         _currentState = state;
     }
 
-    void AddPromptShowcaseVisibilityTween(Sequence seq, MainUIState from, MainUIState to)
+    void EnsureGeneratedStateView(MainUIState state)
     {
-        if (seq == null || (from != MainUIState.PromptShowcase && to != MainUIState.PromptShowcase)) return;
-
-        EnsurePromptShowcaseView();
-
-        if (_promptShowcaseGroup == null) return;
-
-        if (to == MainUIState.PromptShowcase)
+        switch (state)
         {
-            PreparePromptShowcaseStart();
-            _promptShowcaseGroup.alpha = 0f;
-            seq.Join(_promptShowcaseGroup.DOFade(1f, _fadeOutDuration).SetEase(_ease));
+            case MainUIState.PromptShowcase:
+                EnsurePromptSharedView();
+                break;
+            case MainUIState.Gameplay:
+                EnsureGameplayElementsView();
+                break;
         }
-        else
+    }
+
+    void PrepareGeneratedStateTarget(MainUIState state)
+    {
+        switch (state)
         {
-            seq.Join(_promptShowcaseGroup.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+            case MainUIState.PromptShowcase:
+                PreparePromptShowcaseStart();
+                break;
+            case MainUIState.Gameplay:
+                PrepareGameplayStart();
+                SetSharedPromptVisibleForGameplay();
+                SetGameplayPlayerIconsVisible();
+                break;
         }
     }
 
     List<CanvasGroup> GetAllStateGroups()
     {
         var result = new List<CanvasGroup>();
-        if (_stateGroups == null) return result;
-
-        foreach (var groupSet in _stateGroups)
+        if (_stateGroups != null)
         {
-            if (groupSet?.visibleGroups == null) continue;
-
-            foreach (var cg in groupSet.visibleGroups)
+            foreach (var groupSet in _stateGroups)
             {
-                if (cg != null && !result.Contains(cg))
-                    result.Add(cg);
+                if (groupSet?.visibleGroups == null) continue;
+
+                foreach (var cg in groupSet.visibleGroups)
+                    AddUniqueGroup(result, cg);
             }
         }
 
         return result;
+    }
+
+    void AddUniqueGroup(List<CanvasGroup> groups, CanvasGroup cg)
+    {
+        if (groups == null || cg == null || groups.Contains(cg)) return;
+        groups.Add(cg);
+    }
+
+#if UNITY_EDITOR
+    bool SyncGeneratedStateGroupsForInspector()
+    {
+        var changed = false;
+
+        changed |= RemoveNullAndDuplicateStateGroups();
+
+        if (_promptSharedGroupRect == null)
+        {
+            var promptRoot = FindPromptSharedRoot(false);
+            if (promptRoot != null)
+            {
+                _promptSharedGroupRect = promptRoot;
+                changed = true;
+            }
+        }
+        if (_promptSharedGroup == null && _promptSharedGroupRect != null)
+        {
+            var promptGroup = _promptSharedGroupRect.GetComponent<CanvasGroup>();
+            if (promptGroup != null)
+            {
+                _promptSharedGroup = promptGroup;
+                changed = true;
+            }
+        }
+
+        if (_gameplayElementsGroupRect == null)
+        {
+            var gameplayRoot = FindGameplayElementsRoot(false);
+            if (gameplayRoot != null)
+            {
+                _gameplayElementsGroupRect = gameplayRoot;
+                changed = true;
+            }
+        }
+        if (_gameplayElementsGroup == null && _gameplayElementsGroupRect != null)
+        {
+            var gameplayGroup = _gameplayElementsGroupRect.GetComponent<CanvasGroup>();
+            if (gameplayGroup != null)
+            {
+                _gameplayElementsGroup = gameplayGroup;
+                changed = true;
+            }
+        }
+
+        changed |= AddVisibleGroupToSerializedState(MainUIState.PromptShowcase, _promptSharedGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _promptSharedGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _gameplayElementsGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, GetInputFieldStateGroup());
+        changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _waitingP1Group);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _waitingP2Group);
+
+        return changed;
+    }
+
+    bool RemoveNullAndDuplicateStateGroups()
+    {
+        if (_stateGroups == null) return false;
+
+        var changed = false;
+        foreach (var groupSet in _stateGroups)
+        {
+            if (groupSet == null) continue;
+
+            var visibleGroups = RemoveNullAndDuplicateGroups(groupSet.visibleGroups, out var visibleChanged);
+            var manuallyRevealedGroups = RemoveNullAndDuplicateGroups(groupSet.manuallyRevealedGroups, out var manualChanged);
+            if (visibleChanged)
+            {
+                groupSet.visibleGroups = visibleGroups;
+                changed = true;
+            }
+            if (manualChanged)
+            {
+                groupSet.manuallyRevealedGroups = manuallyRevealedGroups;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    CanvasGroup[] RemoveNullAndDuplicateGroups(CanvasGroup[] groups, out bool changed)
+    {
+        changed = false;
+        if (groups == null) return groups;
+
+        var cleaned = new List<CanvasGroup>();
+        foreach (var group in groups)
+        {
+            if (group == null)
+            {
+                changed = true;
+                continue;
+            }
+
+            if (cleaned.Contains(group))
+            {
+                changed = true;
+                continue;
+            }
+
+            cleaned.Add(group);
+        }
+
+        return changed ? cleaned.ToArray() : groups;
+    }
+
+    bool AddVisibleGroupToSerializedState(MainUIState state, CanvasGroup group)
+    {
+        if (group == null) return false;
+
+        if (_stateGroups == null)
+            _stateGroups = new StateCanvasGroupSet[0];
+
+        for (var i = 0; i < _stateGroups.Length; i++)
+        {
+            var groupSet = _stateGroups[i];
+            if (groupSet == null || groupSet.state != state) continue;
+
+            if (ContainsGroup(groupSet.visibleGroups, group)) return false;
+
+            var visibleGroups = new List<CanvasGroup>();
+            if (groupSet.visibleGroups != null)
+                visibleGroups.AddRange(groupSet.visibleGroups);
+            visibleGroups.Add(group);
+            groupSet.visibleGroups = visibleGroups.ToArray();
+            return true;
+        }
+
+        var stateGroups = new List<StateCanvasGroupSet>(_stateGroups)
+        {
+            new StateCanvasGroupSet
+            {
+                state = state,
+                visibleGroups = new[] { group },
+                manuallyRevealedGroups = new CanvasGroup[0]
+            }
+        };
+        _stateGroups = stateGroups.ToArray();
+        return true;
+    }
+#endif
+
+    CanvasGroup GetInputFieldStateGroup()
+    {
+        return _inputFieldRect != null ? _inputFieldRect.GetComponent<CanvasGroup>() : null;
     }
 
     bool IsManuallyRevealed(MainUIState state, CanvasGroup cg)
