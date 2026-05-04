@@ -14,11 +14,19 @@ public class MainUIController : MonoBehaviour
     const string DeprecatedPromptShowcaseRootName = "PromptShowcaseRoot";
     const string GameplayElementsGroupName = "GameplayElementsGroup";
     const string DeprecatedGameplayRootName = "GameplayRoot";
+    const string RoundResultElementsGroupName = "RoundResultElementsGroup";
+    const int RoundResultLayoutVersion = 14;
 
 #if UNITY_EDITOR
     const string MainUIPrefabPath = "Assets/Prefabs/UI/MainUI.prefab";
     static bool s_buildingLoadedPrefabAsset;
     static bool s_prefabBuildScheduled;
+
+    [UnityEditor.InitializeOnLoadMethod]
+    static void ScheduleMainUIPrefabBuildAfterReload()
+    {
+        ScheduleMainUIPrefabBuild();
+    }
 #endif
 
     public enum MainUIState
@@ -127,6 +135,7 @@ public class MainUIController : MonoBehaviour
     [Header("State Visibility")]
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
+    [SerializeField, HideInInspector] int _roundResultLayoutVersion;
     [SerializeField] float _fadeOutDuration = 0.4f;
 
     [Header("Post-Waiting State Animations")]
@@ -264,6 +273,31 @@ public class MainUIController : MonoBehaviour
     string _gameplayP2Word = "";
     bool _gameplayInputListenerRegistered;
 
+    [Header("Round Result Elements")]
+    [SerializeField] RectTransform _roundResultElementsGroupRect;
+    [SerializeField] CanvasGroup _roundResultElementsGroup;
+    [SerializeField] Image _roundResultPanel;
+    [SerializeField] TMP_Text _roundResultP1WordText;
+    [SerializeField] TMP_Text _roundResultP2WordText;
+    [SerializeField] TMP_Text _roundResultDeathLabelText;
+    [SerializeField] TMP_Text _roundResultP1ScoreText;
+    [SerializeField] TMP_Text _roundResultP2ScoreText;
+    [SerializeField] RectTransform _roundResultP1ScoreBar;
+    [SerializeField] RectTransform _roundResultP2ScoreBar;
+    [SerializeField] RectTransform _roundResultDeathLineGroup;
+    [SerializeField] string _roundResultP1Word = "average";
+    [SerializeField] string _roundResultP2Word = "aromatic";
+    [SerializeField] int _roundResultP1Score = 21;
+    [SerializeField] int _roundResultP2Score = 18;
+    [SerializeField] Color _roundResultTextColor = new Color(0.93333334f, 0.91764706f, 0.89411765f, 1f);
+    [SerializeField] Color _roundResultMutedTextColor = new Color(0.53333336f, 0.5254902f, 0.5137255f, 1f);
+    [SerializeField] float _roundResultTransitionDuration = 0.45f;
+    [SerializeField] float _roundResultFadeGameplayDuration = 0.3f;
+    [SerializeField] float _roundResultPanelMorphDuration = 0.55f;
+    [SerializeField] float _roundResultStripeRevealDuration = 0.35f;
+    [SerializeField] float _roundResultContentFadeDuration = 0.35f;
+    [SerializeField] float _roundResultContentStagger = 0.05f;
+
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
     [SerializeField] Vector2 _initBarSize;
@@ -303,7 +337,12 @@ public class MainUIController : MonoBehaviour
 
         var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(MainUIPrefabPath);
         var assetController = prefab != null ? prefab.GetComponent<MainUIController>() : null;
-        if (assetController == null || assetController.HasPrefabOwnedSharedPromptAndGameplayUi()) return;
+        if (assetController == null) return;
+
+        var needsSharedPromptAndGameplay = !assetController.HasPrefabOwnedSharedPromptAndGameplayUi();
+        var needsRoundResult = !assetController.HasPrefabOwnedRoundResultUi();
+        var needsRoundResultLayout = !needsRoundResult && assetController._roundResultLayoutVersion != RoundResultLayoutVersion;
+        if (!needsSharedPromptAndGameplay && !needsRoundResult && !needsRoundResultLayout) return;
 
         var prefabRoot = UnityEditor.PrefabUtility.LoadPrefabContents(MainUIPrefabPath);
         if (prefabRoot == null) return;
@@ -311,10 +350,13 @@ public class MainUIController : MonoBehaviour
         try
         {
             var controller = prefabRoot.GetComponent<MainUIController>();
-            if (controller == null || controller.HasPrefabOwnedSharedPromptAndGameplayUi()) return;
+            if (controller == null) return;
 
             s_buildingLoadedPrefabAsset = true;
-            controller.BuildPrefabOwnedSharedPromptAndGameplayUi();
+            if (needsSharedPromptAndGameplay)
+                controller.BuildPrefabOwnedSharedPromptAndGameplayUi();
+            if (needsRoundResult || needsRoundResultLayout)
+                controller.BuildPrefabOwnedRoundResultUi();
             UnityEditor.PrefabUtility.SaveAsPrefabAsset(prefabRoot, MainUIPrefabPath);
         }
         finally
@@ -349,6 +391,23 @@ public class MainUIController : MonoBehaviour
         UnityEditor.EditorUtility.SetDirty(this);
     }
 
+    [ContextMenu("Build Prefab-Owned Round Result Elements")]
+    void BuildPrefabOwnedRoundResultUi()
+    {
+        if (!CanEditPrefabAssetStructure())
+        {
+            Debug.LogError("Open MainUI.prefab in Prefab Mode before building round result UI children.");
+            return;
+        }
+
+        EnsureRoundResultElementsView();
+        PrepareRoundResultStart();
+        _roundResultLayoutVersion = RoundResultLayoutVersion;
+        SyncGeneratedStateGroupsForInspector();
+        SetStateVisibilityImmediate(_currentState);
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+
     bool HasPrefabOwnedSharedPromptAndGameplayUi()
     {
         var promptRoot = _promptSharedGroupRect != null ? _promptSharedGroupRect : FindPromptSharedRoot(false);
@@ -365,6 +424,23 @@ public class MainUIController : MonoBehaviour
             && HasImageChild(gameplayRoot, "GameplayTimerBar")
             && FindChildRect(gameplayRoot, "GameplayP1LetterGroup") != null
             && FindChildRect(gameplayRoot, "GameplayP2LetterGroup") != null;
+    }
+
+    bool HasPrefabOwnedRoundResultUi()
+    {
+        var roundResultRoot = _roundResultElementsGroupRect != null ? _roundResultElementsGroupRect : FindRoundResultElementsRoot();
+
+        return roundResultRoot != null
+            && roundResultRoot.GetComponent<CanvasGroup>() != null
+            && HasImageChild(roundResultRoot, "RoundResultPanel")
+            && HasTextChild(roundResultRoot, "RoundResultP1WordText")
+            && HasTextChild(roundResultRoot, "RoundResultP2WordText")
+            && HasTextChild(roundResultRoot, "RoundResultDeathLabelText")
+            && HasImageChild(roundResultRoot, "RoundResultP1ScoreBar")
+            && HasImageChild(roundResultRoot, "RoundResultP2ScoreBar")
+            && FindChildRect(roundResultRoot, "RoundResultYellowStripe") == null
+            && FindChildRect(roundResultRoot, "RoundResultBlueStripe") == null
+            && FindChildRect(roundResultRoot, "RoundResultRedStripe") == null;
     }
 
     bool HasImageChild(RectTransform parent, string childName)
@@ -402,6 +478,11 @@ public class MainUIController : MonoBehaviour
             rect.name = GameplayElementsGroupName;
 
         return rect;
+    }
+
+    RectTransform FindRoundResultElementsRoot()
+    {
+        return FindChildRect(transform, RoundResultElementsGroupName);
     }
 
     [ContextMenu("Capture Current As Initial State")]
@@ -946,6 +1027,37 @@ public class MainUIController : MonoBehaviour
         }
     }
 
+    void AddPromptToRoundResultTween(Sequence seq)
+    {
+        if (seq == null) return;
+
+        if (_promptTitleText != null)
+        {
+            _promptTitleText.alignment = TextAlignmentOptions.Left;
+            _promptTitleText.color = _roundResultTextColor;
+            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            SetTopLeftAnchors(_promptTitleText.rectTransform);
+            _promptTitleText.alignment = TextAlignmentOptions.TopLeft;
+            seq.Join(_promptTitleText.rectTransform.DOAnchorPos(GetRoundResultPromptTopLeftPosition(), _roundResultTransitionDuration).SetEase(_ease));
+            seq.Join(_promptTitleText.rectTransform.DOSizeDelta(new Vector2(1400f, 220f), _roundResultTransitionDuration).SetEase(_ease));
+            seq.Join(DOTween.To(() => _promptTitleText.fontSize, x => _promptTitleText.fontSize = x, 170f, _roundResultTransitionDuration).SetEase(_ease));
+        }
+
+        if (_promptBannedText != null)
+        {
+            _promptBannedText.richText = true;
+            _promptBannedText.overrideColorTags = false;
+            _promptBannedText.alignment = TextAlignmentOptions.Left;
+            _promptBannedText.color = _roundResultTextColor;
+            _promptBannedText.text = GetBannedLetterRevealText();
+            SetTopLeftAnchors(_promptBannedText.rectTransform);
+            _promptBannedText.alignment = TextAlignmentOptions.TopLeft;
+            seq.Join(_promptBannedText.rectTransform.DOAnchorPos(GetRoundResultBannedLabelTopLeftPosition(), _roundResultTransitionDuration).SetEase(_ease));
+            seq.Join(_promptBannedText.rectTransform.DOSizeDelta(new Vector2(1000f, 90f), _roundResultTransitionDuration).SetEase(_ease));
+            seq.Join(DOTween.To(() => _promptBannedText.fontSize, x => _promptBannedText.fontSize = x, 59f, _roundResultTransitionDuration).SetEase(_ease));
+        }
+    }
+
     void AddGameplayPlayerIconEnterTween(Sequence seq, CanvasGroup group)
     {
         if (seq == null || group == null) return;
@@ -955,10 +1067,109 @@ public class MainUIController : MonoBehaviour
         seq.Join(rect.DOAnchorPosY(rect.anchoredPosition.y + _gameplaySlideOffset, _gameplayFadeDuration).SetEase(_ease));
     }
 
+    void AddRoundResultPlayerIconTween(Sequence seq, CanvasGroup group, Vector2 targetPosition, bool showLocalIndicator)
+    {
+        if (seq == null || group == null) return;
+        if (!(group.transform is RectTransform rect)) return;
+
+        ConfigurePlayerIconBoxForGameplay(rect);
+        ConfigurePlayerIconIndicatorForGameplay(rect, showLocalIndicator);
+        seq.Join(group.DOFade(1f, _roundResultTransitionDuration).SetEase(_ease));
+        seq.Join(rect.DOAnchorPos(targetPosition, _roundResultTransitionDuration).SetEase(_ease));
+        seq.Join(rect.DOSizeDelta(new Vector2(100f, 100f), _roundResultTransitionDuration).SetEase(_ease));
+    }
+
     [ContextMenu("Transition To Round Result")]
     public void TransitionToRoundResult()
     {
+        if (_currentState == MainUIState.Gameplay)
+        {
+            TransitionFromGameplayToRoundResult();
+            return;
+        }
+
         TransitionToConfiguredState(MainUIState.RoundResult);
+    }
+
+    void TransitionFromGameplayToRoundResult()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        EnsurePromptSharedView();
+        EnsureGameplayElementsView();
+        EnsureRoundResultElementsView();
+
+        SetSharedPromptVisibleForGameplay();
+        SetGameplayPlayerIconsVisible();
+        PrepareRoundResultStart();
+
+        var seq = DOTween.Sequence().SetId(this);
+
+        if (_roundResultElementsGroupRect != null)
+            _roundResultElementsGroupRect.SetAsLastSibling();
+        if (_promptSharedGroupRect != null)
+            _promptSharedGroupRect.SetAsLastSibling();
+        SetRoundResultPlayerIconSiblingOrder();
+
+        PrepareRoundResultTransitionStart();
+
+        var fadeSeq = DOTween.Sequence().SetId(this);
+        if (_promptSharedGroup != null)
+            fadeSeq.Join(_promptSharedGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        if (_gameplayElementsGroup != null)
+            fadeSeq.Join(_gameplayElementsGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        if (_waitingP1Group != null)
+            fadeSeq.Join(_waitingP1Group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        if (_waitingP2Group != null)
+            fadeSeq.Join(_waitingP2Group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        if (_inputFieldContentGroup != null)
+            fadeSeq.Join(_inputFieldContentGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        seq.Append(fadeSeq);
+
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.alpha = 1f;
+            inputGroup.interactable = false;
+            inputGroup.blocksRaycasts = false;
+        }
+
+        if (_inputField != null)
+            _inputField.DeactivateInputField();
+
+        var panelMorphSeq = DOTween.Sequence().SetId(this);
+        if (_inputFieldRect != null)
+        {
+            _inputFieldRect.SetAsLastSibling();
+            panelMorphSeq.Join(_inputFieldRect.DOAnchorPos(GetRoundResultPanelPosition(), _roundResultPanelMorphDuration).SetEase(_ease));
+            panelMorphSeq.Join(_inputFieldRect.DOSizeDelta(GetRoundResultPanelSize(), _roundResultPanelMorphDuration).SetEase(_ease));
+        }
+        seq.Append(panelMorphSeq);
+
+        seq.AppendCallback(() =>
+        {
+            SetRoundResultPanelAlpha(1f);
+            if (inputGroup != null)
+                inputGroup.alpha = 0f;
+            PrepareRoundResultContentForReveal();
+        });
+
+        AddRoundResultStripeRevealTween(seq);
+        AddRoundResultContentRevealTween(seq);
+
+        seq.OnComplete(() =>
+        {
+            if (_inputField != null)
+                _inputField.DeactivateInputField();
+            SetStateVisibilityImmediate(MainUIState.RoundResult);
+            ConfigureRoundResultStripes();
+            SetSharedPromptVisibleForRoundResult();
+            SetRoundResultPlayerIconsVisible();
+            SetRoundResultElementsVisible();
+        });
+
+        _currentState = MainUIState.RoundResult;
     }
 
     [ContextMenu("Transition To Game End")]
@@ -1327,9 +1538,11 @@ public class MainUIController : MonoBehaviour
         if (string.IsNullOrEmpty(_promptBannedLetters))
             return "banned letters";
 
+        var colorHex = ColorUtility.ToHtmlStringRGB(_promptBannedLetterColor);
+        var coloredLetters = $"<color=#{colorHex}>{_promptBannedLetters}</color>";
         return _promptBannedLetters.Length == 1
-            ? $"banned letter \"{_promptBannedLetters}\""
-            : $"banned letters \"{_promptBannedLetters}\"";
+            ? $"banned letter \"{coloredLetters}\""
+            : $"banned letters \"{coloredLetters}\"";
     }
 
     string GetPromptTextWithBannedLetters(string source)
@@ -1352,6 +1565,9 @@ public class MainUIController : MonoBehaviour
 
     bool IsBannedPromptLetter(char c)
     {
+        if (string.IsNullOrEmpty(_promptBannedLetters))
+            return false;
+
         foreach (var banned in _promptBannedLetters)
         {
             if (char.ToUpperInvariant(c) == char.ToUpperInvariant(banned))
@@ -1488,6 +1704,458 @@ public class MainUIController : MonoBehaviour
         HideDeprecatedGameplayPlayerLabelCopies();
     }
 
+    void EnsureRoundResultElementsView()
+    {
+        if (_roundResultElementsGroupRect == null)
+            _roundResultElementsGroupRect = FindRoundResultElementsRoot();
+        if (_roundResultElementsGroupRect == null)
+            _roundResultElementsGroupRect = CreateRect(RoundResultElementsGroupName, transform);
+        if (_roundResultElementsGroupRect == null) return;
+
+        StretchToParent(_roundResultElementsGroupRect);
+        RemoveDeprecatedRoundResultStripeCopies();
+
+        if (_roundResultElementsGroup == null)
+            _roundResultElementsGroup = _roundResultElementsGroupRect.GetComponent<CanvasGroup>();
+        if (_roundResultElementsGroup == null)
+        {
+            if (!CanCreatePrefabOwnedUi($"{RoundResultElementsGroupName} CanvasGroup")) return;
+            _roundResultElementsGroup = _roundResultElementsGroupRect.gameObject.AddComponent<CanvasGroup>();
+        }
+
+        var fontSource = GetComponentInChildren<TMP_Text>(true);
+        _roundResultPanel = GetOrCreateImage("RoundResultPanel", _roundResultElementsGroupRect, _promptInkColor).image;
+        _roundResultP1WordText = GetOrCreatePromptText(_roundResultP1WordText, _roundResultElementsGroupRect, "RoundResultP1WordText", _roundResultP1Word, GetRoundResultP1WordPosition(), new Vector2(520f, 70f), 49f, fontSource, TextAlignmentOptions.Left);
+        _roundResultP2WordText = GetOrCreatePromptText(_roundResultP2WordText, _roundResultElementsGroupRect, "RoundResultP2WordText", _roundResultP2Word, GetRoundResultP2WordPosition(), new Vector2(520f, 70f), 49f, fontSource, TextAlignmentOptions.Left);
+        _roundResultDeathLabelText = GetOrCreatePromptText(_roundResultDeathLabelText, _roundResultElementsGroupRect, "RoundResultDeathLabelText", "death.", Vector2.zero, new Vector2(220f, 60f), 36f, fontSource, TextAlignmentOptions.Left);
+        _roundResultP1ScoreText = GetOrCreatePromptText(_roundResultP1ScoreText, _roundResultElementsGroupRect, "RoundResultP1ScoreText", _roundResultP1Score.ToString(), Vector2.zero, new Vector2(120f, 70f), 49f, fontSource, TextAlignmentOptions.Center);
+        _roundResultP2ScoreText = GetOrCreatePromptText(_roundResultP2ScoreText, _roundResultElementsGroupRect, "RoundResultP2ScoreText", _roundResultP2Score.ToString(), Vector2.zero, new Vector2(120f, 70f), 49f, fontSource, TextAlignmentOptions.Center);
+
+        if (_roundResultP1ScoreBar == null)
+            _roundResultP1ScoreBar = GetOrCreateImage("RoundResultP1ScoreBar", _roundResultElementsGroupRect, _roundResultTextColor).rect;
+        if (_roundResultP2ScoreBar == null)
+            _roundResultP2ScoreBar = GetOrCreateImage("RoundResultP2ScoreBar", _roundResultElementsGroupRect, _roundResultTextColor).rect;
+        if (_roundResultDeathLineGroup == null)
+            _roundResultDeathLineGroup = FindChildRect(_roundResultElementsGroupRect, "RoundResultDeathLineGroup");
+        if (_roundResultDeathLineGroup == null)
+            _roundResultDeathLineGroup = CreateRect("RoundResultDeathLineGroup", _roundResultElementsGroupRect);
+
+        EnsureRoundResultDeathLineSegments();
+    }
+
+    void PrepareRoundResultStart()
+    {
+        EnsureRoundResultElementsView();
+
+        if (_roundResultElementsGroup != null)
+        {
+            _roundResultElementsGroup.alpha = 0f;
+            _roundResultElementsGroup.interactable = false;
+            _roundResultElementsGroup.blocksRaycasts = false;
+        }
+
+        ConfigureRoundResultElements();
+    }
+
+    void SetRoundResultElementsVisible()
+    {
+        EnsureRoundResultElementsView();
+        ConfigureRoundResultElements();
+        ConfigureRoundResultStripes();
+
+        if (_roundResultElementsGroup != null)
+        {
+            _roundResultElementsGroup.alpha = 1f;
+            _roundResultElementsGroup.interactable = false;
+            _roundResultElementsGroup.blocksRaycasts = false;
+        }
+    }
+
+    void PrepareRoundResultTransitionStart()
+    {
+        if (_roundResultElementsGroup != null)
+        {
+            _roundResultElementsGroup.alpha = 1f;
+            _roundResultElementsGroup.interactable = false;
+            _roundResultElementsGroup.blocksRaycasts = false;
+        }
+
+        ConfigureRoundResultElements();
+        SetRoundResultPanelAlpha(0f);
+        SetRoundResultContentAlpha(0f);
+        PrepareRoundResultStripesForReveal();
+
+        if (_inputField != null)
+        {
+            _inputField.readOnly = true;
+            _inputField.interactable = false;
+        }
+        if (_inputFieldContentGroup != null)
+        {
+            _inputFieldContentGroup.interactable = false;
+            _inputFieldContentGroup.blocksRaycasts = false;
+        }
+        if (_inputFieldRect != null && _inputField.targetGraphic != null)
+            _inputField.targetGraphic.color = _promptInkColor;
+    }
+
+    void PrepareRoundResultContentForReveal()
+    {
+        SetSharedPromptVisibleForRoundResult();
+        SetRoundResultPlayerIconsVisible();
+        ConfigureRoundResultElements();
+        SetRoundResultPanelAlpha(1f);
+        SetRoundResultContentAlpha(0f);
+    }
+
+    void SetRoundResultPanelAlpha(float alpha)
+    {
+        if (_roundResultPanel == null) return;
+
+        SetGraphicAlpha(_roundResultPanel, alpha);
+    }
+
+    void SetRoundResultContentAlpha(float alpha)
+    {
+        SetTextAlpha(_promptTitleText, alpha);
+        SetTextAlpha(_promptBannedText, alpha);
+        SetCanvasGroupAlpha(_waitingP1Group, alpha);
+        SetCanvasGroupAlpha(_waitingP2Group, alpha);
+        SetTextAlpha(_roundResultP1WordText, alpha);
+        SetTextAlpha(_roundResultP2WordText, alpha);
+        SetTextAlpha(_roundResultDeathLabelText, alpha);
+        SetTextAlpha(_roundResultP1ScoreText, alpha);
+        SetTextAlpha(_roundResultP2ScoreText, alpha);
+        SetGraphicAlpha(_roundResultP1ScoreBar != null ? _roundResultP1ScoreBar.GetComponent<Graphic>() : null, alpha);
+        SetGraphicAlpha(_roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null, alpha);
+        SetRoundResultDeathLineAlpha(alpha);
+    }
+
+    void PrepareRoundResultStripesForReveal()
+    {
+        if (_decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        PrepareRoundResultStripeForReveal(_decorativeLines[0]?.rect, new Vector2(-900f, 470f));
+        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, new Vector2(-900f, 436f));
+        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, new Vector2(-900f, 402f));
+
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+    }
+
+    void PrepareRoundResultStripeForReveal(RectTransform rect, Vector2 leftCenterPosition)
+    {
+        if (rect == null) return;
+
+        ConfigureRect(rect, leftCenterPosition, new Vector2(0f, 20f), new Vector2(0f, 0.5f));
+        rect.gameObject.SetActive(true);
+        var graphic = rect.GetComponent<Graphic>();
+        if (graphic != null)
+        {
+            graphic.color = _gameplayLetterNeutralColor;
+            graphic.raycastTarget = false;
+        }
+    }
+
+    void AddRoundResultStripeRevealTween(Sequence seq)
+    {
+        if (seq == null || _decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        var stripeSeq = DOTween.Sequence().SetId(this);
+        AddRoundResultStripeWidthTween(stripeSeq, _decorativeLines[0]?.rect);
+        AddRoundResultStripeWidthTween(stripeSeq, _decorativeLines[1]?.rect);
+        AddRoundResultStripeWidthTween(stripeSeq, _decorativeLines[2]?.rect);
+        seq.Append(stripeSeq);
+    }
+
+    void AddRoundResultStripeWidthTween(Sequence stripeSeq, RectTransform rect)
+    {
+        if (stripeSeq == null || rect == null) return;
+
+        stripeSeq.Join(rect.DOSizeDelta(new Vector2(1800f, 20f), _roundResultStripeRevealDuration).SetEase(_ease));
+    }
+
+    void AddRoundResultContentRevealTween(Sequence seq)
+    {
+        if (seq == null) return;
+
+        var contentSeq = DOTween.Sequence().SetId(this);
+        AddRoundResultFadeTween(contentSeq, _promptTitleText);
+        AddRoundResultFadeTween(contentSeq, _promptBannedText);
+        AddRoundResultFadeTween(contentSeq, _waitingP1Group);
+        AddRoundResultFadeTween(contentSeq, _roundResultP1WordText);
+        AddRoundResultFadeTween(contentSeq, _waitingP2Group);
+        AddRoundResultFadeTween(contentSeq, _roundResultP2WordText);
+        AddRoundResultFadeTween(contentSeq, _roundResultDeathLabelText);
+        AddRoundResultDeathLineFadeTween(contentSeq);
+        AddRoundResultFadeTween(contentSeq, _roundResultP1ScoreBar != null ? _roundResultP1ScoreBar.GetComponent<Graphic>() : null);
+        AddRoundResultFadeTween(contentSeq, _roundResultP1ScoreText);
+        AddRoundResultFadeTween(contentSeq, _roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null);
+        AddRoundResultFadeTween(contentSeq, _roundResultP2ScoreText);
+        seq.Append(contentSeq);
+    }
+
+    void AddRoundResultFadeTween(Sequence seq, TMP_Text text)
+    {
+        if (seq == null || text == null) return;
+
+        seq.Append(text.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+        if (_roundResultContentStagger > 0f)
+            seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void AddRoundResultFadeTween(Sequence seq, Graphic graphic)
+    {
+        if (seq == null || graphic == null) return;
+
+        seq.Append(graphic.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+        if (_roundResultContentStagger > 0f)
+            seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void AddRoundResultFadeTween(Sequence seq, CanvasGroup group)
+    {
+        if (seq == null || group == null) return;
+
+        seq.Append(group.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+        if (_roundResultContentStagger > 0f)
+            seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void AddRoundResultDeathLineFadeTween(Sequence seq)
+    {
+        if (seq == null || _roundResultDeathLineGroup == null) return;
+
+        var lineSeq = DOTween.Sequence().SetId(this);
+        for (var i = 0; i < _roundResultDeathLineGroup.childCount; i++)
+        {
+            var graphic = _roundResultDeathLineGroup.GetChild(i).GetComponent<Graphic>();
+            if (graphic != null)
+                lineSeq.Join(graphic.DOFade(0.49f, _roundResultContentFadeDuration).SetEase(_ease));
+        }
+        seq.Append(lineSeq);
+        if (_roundResultContentStagger > 0f)
+            seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void ConfigureRoundResultElements()
+    {
+        ConfigureImageRect(_roundResultPanel, GetRoundResultPanelPosition(), GetRoundResultPanelSize(), _promptInkColor);
+        RemoveDeprecatedRoundResultStripeCopies();
+
+        ConfigureRoundResultTopLeftText(_roundResultP1WordText, GetRoundResultWordText(_roundResultP1Word, _roundResultP2Word, _gameplayP1LetterColor), GetRoundResultP1WordTopLeftPosition(), new Vector2(520f, 70f), 49f, _roundResultTextColor);
+        ConfigureRoundResultTopLeftText(_roundResultP2WordText, GetRoundResultWordText(_roundResultP2Word, _roundResultP1Word, _gameplayP2LetterColor), GetRoundResultP2WordTopLeftPosition(), new Vector2(520f, 70f), 49f, _roundResultTextColor);
+        ConfigureRoundResultTopCenterText(_roundResultDeathLabelText, "death.", GetRoundResultDeathLabelTopCenterPosition(), new Vector2(140f, 60f), 36f, _roundResultMutedTextColor);
+        ConfigureRoundResultCenterLeftText(_roundResultP1ScoreText, _roundResultP1Score.ToString(), GetRoundResultP1ScoreTextLeftCenterPosition(), new Vector2(120f, 70f), 49f, _roundResultTextColor);
+        ConfigureRoundResultCenterLeftText(_roundResultP2ScoreText, _roundResultP2Score.ToString(), GetRoundResultP2ScoreTextLeftCenterPosition(), new Vector2(120f, 70f), 49f, _roundResultTextColor);
+
+        ConfigureRect(_roundResultP1ScoreBar, GetRoundResultP1ScoreBarPosition(), new Vector2(217f, 45f), new Vector2(0f, 0.5f));
+        ConfigureRect(_roundResultP2ScoreBar, GetRoundResultP2ScoreBarPosition(), new Vector2(190f, 45f), new Vector2(0f, 0.5f));
+        ConfigureRect(_roundResultDeathLineGroup, GetRoundResultDeathLinePosition(), new Vector2(5f, 338f), new Vector2(0.5f, 0.5f));
+        LayoutRoundResultDeathLineSegments();
+        SetRoundResultSiblingOrder();
+    }
+
+    void ConfigureRoundResultStripes()
+    {
+        if (_decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        ConfigureRoundResultStripe(_decorativeLines[0]?.rect, new Vector2(0f, 470f));
+        ConfigureRoundResultStripe(_decorativeLines[1]?.rect, new Vector2(0f, 436f));
+        ConfigureRoundResultStripe(_decorativeLines[2]?.rect, new Vector2(0f, 402f));
+
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+    }
+
+    void ConfigureRoundResultStripe(RectTransform rect, Vector2 position)
+    {
+        if (rect == null) return;
+
+        ConfigureRect(rect, position, new Vector2(1800f, 20f), new Vector2(0.5f, 0.5f));
+        rect.gameObject.SetActive(true);
+        var graphic = rect.GetComponent<Graphic>();
+        if (graphic != null)
+        {
+            graphic.color = _gameplayLetterNeutralColor;
+            graphic.raycastTarget = false;
+        }
+    }
+
+    void RemoveDeprecatedRoundResultStripeCopies()
+    {
+        RemoveOrHideDeprecatedRoundResultStripeCopy("RoundResultYellowStripe");
+        RemoveOrHideDeprecatedRoundResultStripeCopy("RoundResultBlueStripe");
+        RemoveOrHideDeprecatedRoundResultStripeCopy("RoundResultRedStripe");
+    }
+
+    void RemoveOrHideDeprecatedRoundResultStripeCopy(string childName)
+    {
+        var rect = FindChildRect(_roundResultElementsGroupRect, childName);
+        if (rect == null) return;
+
+#if UNITY_EDITOR
+        if (!Application.isPlaying && CanEditPrefabAssetStructure())
+        {
+            UnityEditor.Undo.DestroyObjectImmediate(rect.gameObject);
+            return;
+        }
+#endif
+        rect.gameObject.SetActive(false);
+    }
+
+    void SetRoundResultSiblingOrder()
+    {
+        if (_roundResultPanel != null)
+            _roundResultPanel.transform.SetAsFirstSibling();
+        if (_roundResultDeathLineGroup != null)
+            _roundResultDeathLineGroup.SetAsLastSibling();
+        if (_roundResultDeathLabelText != null)
+            _roundResultDeathLabelText.transform.SetAsLastSibling();
+        if (_roundResultP1WordText != null)
+            _roundResultP1WordText.transform.SetAsLastSibling();
+        if (_roundResultP2WordText != null)
+            _roundResultP2WordText.transform.SetAsLastSibling();
+        if (_roundResultP1ScoreText != null)
+            _roundResultP1ScoreText.transform.SetAsLastSibling();
+        if (_roundResultP2ScoreText != null)
+            _roundResultP2ScoreText.transform.SetAsLastSibling();
+    }
+
+    void ConfigureImageRect(Image image, Vector2 position, Vector2 size, Color color)
+    {
+        if (image == null) return;
+
+        ConfigureRect(image.rectTransform, position, size, new Vector2(0.5f, 0.5f));
+        image.color = color;
+        image.raycastTarget = false;
+    }
+
+    void ConfigureRoundResultText(TMP_Text text, string value, Vector2 position, float fontSize, Color color, TextAlignmentOptions alignment)
+    {
+        if (text == null) return;
+
+        text.richText = true;
+        text.overrideColorTags = false;
+        text.text = value;
+        text.color = color;
+        text.fontSize = fontSize;
+        text.alignment = alignment;
+        text.alpha = 1f;
+        text.raycastTarget = false;
+        ConfigureRect(text.rectTransform, position, text.rectTransform.sizeDelta, new Vector2(0.5f, 0.5f));
+    }
+
+    void ConfigureRoundResultTopLeftText(TMP_Text text, string value, Vector2 topLeftPosition, Vector2 size, float fontSize, Color color)
+    {
+        if (text == null) return;
+
+        text.richText = true;
+        text.overrideColorTags = false;
+        text.text = value;
+        text.color = color;
+        text.fontSize = fontSize;
+        text.alignment = TextAlignmentOptions.TopLeft;
+        text.alpha = 1f;
+        text.raycastTarget = false;
+        ConfigureTopLeftRect(text.rectTransform, topLeftPosition, size);
+    }
+
+    void ConfigureRoundResultTopCenterText(TMP_Text text, string value, Vector2 topCenterPosition, Vector2 size, float fontSize, Color color)
+    {
+        if (text == null) return;
+
+        text.richText = true;
+        text.overrideColorTags = false;
+        text.text = value;
+        text.color = color;
+        text.fontSize = fontSize;
+        text.alignment = TextAlignmentOptions.Top;
+        text.alpha = 1f;
+        text.raycastTarget = false;
+        ConfigureTopCenterRect(text.rectTransform, topCenterPosition, size);
+    }
+
+    void ConfigureRoundResultCenterLeftText(TMP_Text text, string value, Vector2 leftCenterPosition, Vector2 size, float fontSize, Color color)
+    {
+        if (text == null) return;
+
+        text.richText = true;
+        text.overrideColorTags = false;
+        text.text = value;
+        text.color = color;
+        text.fontSize = fontSize;
+        text.alignment = TextAlignmentOptions.Left;
+        text.alpha = 1f;
+        text.raycastTarget = false;
+        ConfigureCenterLeftRect(text.rectTransform, leftCenterPosition, size);
+    }
+
+    void EnsureRoundResultDeathLineSegments()
+    {
+        if (_roundResultDeathLineGroup == null) return;
+
+        const int segmentCount = 17;
+        for (var i = 0; i < segmentCount; i++)
+            GetOrCreateImage($"DeathDash{i + 1}", _roundResultDeathLineGroup, new Color(_roundResultTextColor.r, _roundResultTextColor.g, _roundResultTextColor.b, 0.49f));
+    }
+
+    void LayoutRoundResultDeathLineSegments()
+    {
+        if (_roundResultDeathLineGroup == null) return;
+
+        for (var i = 0; i < _roundResultDeathLineGroup.childCount; i++)
+        {
+            if (!(_roundResultDeathLineGroup.GetChild(i) is RectTransform dash)) continue;
+            dash.gameObject.SetActive(i < 17);
+            ConfigureRect(dash, new Vector2(0f, 159f - i * 20f), new Vector2(5f, 10f), new Vector2(0.5f, 0.5f));
+            var image = dash.GetComponent<Image>();
+            if (image != null)
+                image.color = new Color(_roundResultTextColor.r, _roundResultTextColor.g, _roundResultTextColor.b, 0.49f);
+        }
+    }
+
+    string GetRoundResultWordText(string word, string opposingWord, Color advantageColor)
+    {
+        if (string.IsNullOrEmpty(word)) return string.Empty;
+
+        var colorHex = ColorUtility.ToHtmlStringRGB(advantageColor);
+        var ownLetterCount = CountLetters(word);
+        var opposingLetterCount = CountLetters(opposingWord);
+        var letterIndex = 0;
+        var result = new StringBuilder(word.Length);
+
+        foreach (var c in word)
+        {
+            if (!char.IsLetter(c))
+            {
+                result.Append(c);
+                continue;
+            }
+
+            var shouldColor = ownLetterCount > opposingLetterCount && letterIndex >= opposingLetterCount;
+            if (shouldColor)
+                result.Append("<color=#").Append(colorHex).Append(">").Append(c).Append("</color>");
+            else if (IsBannedPromptLetter(c))
+                result.Append("<color=#").Append(ColorUtility.ToHtmlStringRGB(_promptBannedLetterColor)).Append(">").Append(c).Append("</color>");
+            else
+                result.Append(c);
+
+            letterIndex++;
+        }
+
+        return result.ToString();
+    }
+
     void PrepareGameplayText(TMP_Text text, string value, Color color, Vector2 targetPosition, TextAlignmentOptions alignment = TextAlignmentOptions.Center)
     {
         if (text == null) return;
@@ -1507,6 +2175,22 @@ public class MainUIController : MonoBehaviour
     Vector2 GetGameplayInputFieldSize() => new Vector2(1800f, 120f);
     Vector2 GetGameplayP1LetterGroupPosition() => new Vector2(-760f, GetGameplayP1IconPosition().y);
     Vector2 GetGameplayP2LetterGroupPosition() => new Vector2(-760f, GetGameplayP2IconPosition().y);
+    Vector2 GetRoundResultPromptTopLeftPosition() => new Vector2(105f, -185f);
+    Vector2 GetRoundResultBannedLabelTopLeftPosition() => new Vector2(125f, -365f);
+    Vector2 GetRoundResultP1IconPosition() => new Vector2(-780f, -100f);
+    Vector2 GetRoundResultP2IconPosition() => new Vector2(-780f, -295f);
+    Vector2 GetRoundResultP1WordPosition() => new Vector2(-414f, -110f);
+    Vector2 GetRoundResultP2WordPosition() => new Vector2(-414f, -310f);
+    Vector2 GetRoundResultP1WordTopLeftPosition() => new Vector2(270f, -610f);
+    Vector2 GetRoundResultP2WordTopLeftPosition() => new Vector2(270f, -805f);
+    Vector2 GetRoundResultDeathLabelTopCenterPosition() => new Vector2(-325f, -490f);
+    Vector2 GetRoundResultDeathLinePosition() => new Vector2(-325f, -169f);
+    Vector2 GetRoundResultP1ScoreBarPosition() => new Vector2(-325f, -100f);
+    Vector2 GetRoundResultP2ScoreBarPosition() => new Vector2(-325f, -295f);
+    Vector2 GetRoundResultP1ScoreTextLeftCenterPosition() => new Vector2(-95f, -100f);
+    Vector2 GetRoundResultP2ScoreTextLeftCenterPosition() => new Vector2(-122f, -295f);
+    Vector2 GetRoundResultPanelPosition() => new Vector2(0f, -52f);
+    Vector2 GetRoundResultPanelSize() => new Vector2(1800f, 856f);
 
     void SetSharedPromptVisibleForGameplay()
     {
@@ -1526,6 +2210,8 @@ public class MainUIController : MonoBehaviour
         }
         if (_promptBannedText != null)
         {
+            _promptBannedText.richText = true;
+            _promptBannedText.overrideColorTags = false;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.color = _promptInkColor;
             _promptBannedText.text = GetBannedLetterRevealText();
@@ -1537,6 +2223,44 @@ public class MainUIController : MonoBehaviour
 
         SetGameplayInputFieldVisible();
         HideDeprecatedGameplayPlayerLabelCopies();
+    }
+
+    void SetSharedPromptVisibleForRoundResult()
+    {
+        SetOptionalGameObjectActive(_promptSharedBackground, false);
+        if (_promptPromptMask != null) _promptPromptMask.gameObject.SetActive(false);
+        if (_promptBannedMask != null) _promptBannedMask.gameObject.SetActive(false);
+
+        if (_promptSharedGroup != null)
+        {
+            _promptSharedGroup.alpha = 1f;
+            _promptSharedGroup.interactable = false;
+            _promptSharedGroup.blocksRaycasts = false;
+        }
+
+        if (_promptTitleText != null)
+        {
+            _promptTitleText.richText = true;
+            _promptTitleText.overrideColorTags = false;
+            _promptTitleText.alignment = TextAlignmentOptions.TopLeft;
+            _promptTitleText.color = _roundResultTextColor;
+            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.fontSize = 170f;
+            _promptTitleText.alpha = 1f;
+            ConfigureTopLeftRect(_promptTitleText.rectTransform, GetRoundResultPromptTopLeftPosition(), new Vector2(1400f, 220f));
+        }
+
+        if (_promptBannedText != null)
+        {
+            _promptBannedText.richText = true;
+            _promptBannedText.overrideColorTags = false;
+            _promptBannedText.alignment = TextAlignmentOptions.TopLeft;
+            _promptBannedText.color = _roundResultTextColor;
+            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.fontSize = 59f;
+            _promptBannedText.alpha = 1f;
+            ConfigureTopLeftRect(_promptBannedText.rectTransform, GetRoundResultBannedLabelTopLeftPosition(), new Vector2(1000f, 90f));
+        }
     }
 
     void PrepareGameplayInputFieldStart()
@@ -1659,6 +2383,12 @@ public class MainUIController : MonoBehaviour
         ConfigureGameplayPlayerIcon(_waitingP2Group, GetGameplayP2IconPosition(), false);
     }
 
+    void SetRoundResultPlayerIconsVisible()
+    {
+        ConfigureRoundResultPlayerIcon(_waitingP1Group, GetRoundResultP1IconPosition(), true);
+        ConfigureRoundResultPlayerIcon(_waitingP2Group, GetRoundResultP2IconPosition(), false);
+    }
+
     void ConfigureGameplayPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
     {
         if (group == null || !(group.transform is RectTransform rect)) return;
@@ -1672,12 +2402,30 @@ public class MainUIController : MonoBehaviour
         rect.SetAsLastSibling();
     }
 
+    void ConfigureRoundResultPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
+    {
+        if (group == null || !(group.transform is RectTransform rect)) return;
+
+        group.alpha = 1f;
+        group.interactable = false;
+        group.blocksRaycasts = false;
+        ConfigureRect(rect, anchoredPosition, new Vector2(100f, 100f), new Vector2(0.5f, 0.5f));
+        ConfigurePlayerIconBoxForGameplay(rect);
+        ConfigurePlayerIconIndicatorForRoundResult(rect, showLocalIndicator);
+        rect.SetAsLastSibling();
+    }
+
     void SetGameplayPlayerIconSiblingOrder()
     {
         if (_waitingP1Group != null)
             _waitingP1Group.transform.SetAsLastSibling();
         if (_waitingP2Group != null)
             _waitingP2Group.transform.SetAsLastSibling();
+    }
+
+    void SetRoundResultPlayerIconSiblingOrder()
+    {
+        SetGameplayPlayerIconSiblingOrder();
     }
 
     void ConfigurePlayerIconIndicatorForGameplay(RectTransform playerIconRoot, bool showLocalIndicator)
@@ -1702,6 +2450,35 @@ public class MainUIController : MonoBehaviour
             {
                 triangleGraphic.PointingDirection = TriangleGraphic.Direction.Right;
                 triangleGraphic.color = _promptInkColor;
+                triangleGraphic.raycastTarget = false;
+            }
+        }
+        if (youText != null)
+            youText.gameObject.SetActive(false);
+    }
+
+    void ConfigurePlayerIconIndicatorForRoundResult(RectTransform playerIconRoot, bool showLocalIndicator)
+    {
+        if (playerIconRoot == null) return;
+
+        var indicator = FindChildRect(playerIconRoot, "YouIndicator");
+        var triangle = FindChildRect(indicator != null ? indicator : playerIconRoot, "YouTriangle");
+        var youText = FindChildRect(indicator != null ? indicator : playerIconRoot, "YouText");
+
+        if (indicator != null)
+        {
+            indicator.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+        }
+        if (triangle != null)
+        {
+            triangle.gameObject.SetActive(showLocalIndicator);
+            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+            var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
+            if (triangleGraphic != null)
+            {
+                triangleGraphic.PointingDirection = TriangleGraphic.Direction.Right;
+                triangleGraphic.color = _roundResultTextColor;
                 triangleGraphic.raycastTarget = false;
             }
         }
@@ -1982,6 +2759,86 @@ public class MainUIController : MonoBehaviour
         rect.localScale = Vector3.one;
     }
 
+    void SetTextAlpha(TMP_Text text, float alpha)
+    {
+        if (text == null) return;
+
+        text.alpha = alpha;
+    }
+
+    void SetCanvasGroupAlpha(CanvasGroup group, float alpha)
+    {
+        if (group == null) return;
+
+        group.alpha = alpha;
+        group.interactable = false;
+        group.blocksRaycasts = false;
+    }
+
+    void SetGraphicAlpha(Graphic graphic, float alpha)
+    {
+        if (graphic == null) return;
+
+        var color = graphic.color;
+        color.a = alpha;
+        graphic.color = color;
+    }
+
+    void SetRoundResultDeathLineAlpha(float alpha)
+    {
+        if (_roundResultDeathLineGroup == null) return;
+
+        for (var i = 0; i < _roundResultDeathLineGroup.childCount; i++)
+        {
+            var graphic = _roundResultDeathLineGroup.GetChild(i).GetComponent<Graphic>();
+            if (graphic != null)
+                SetGraphicAlpha(graphic, alpha);
+        }
+    }
+
+    void ConfigureTopLeftRect(RectTransform rect, Vector2 anchoredPosition, Vector2 sizeDelta)
+    {
+        if (rect == null) return;
+
+        SetTopLeftAnchors(rect);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = sizeDelta;
+        rect.localScale = Vector3.one;
+    }
+
+    void ConfigureTopCenterRect(RectTransform rect, Vector2 anchoredPosition, Vector2 sizeDelta)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0.5f, 1f);
+        rect.anchorMax = new Vector2(0.5f, 1f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = sizeDelta;
+        rect.localScale = Vector3.one;
+    }
+
+    void ConfigureCenterLeftRect(RectTransform rect, Vector2 anchoredPosition, Vector2 sizeDelta)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0f, 0.5f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = sizeDelta;
+        rect.localScale = Vector3.one;
+    }
+
+    void SetTopLeftAnchors(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0f, 1f);
+        rect.anchorMax = new Vector2(0f, 1f);
+        rect.pivot = new Vector2(0f, 1f);
+    }
+
     RectTransform FindChildRect(Transform parent, string childName)
     {
         if (parent == null) return null;
@@ -2069,6 +2926,18 @@ public class MainUIController : MonoBehaviour
             case "GameplayP2LetterGroup":
             case "GameplayP1Text":
             case "GameplayP2Text":
+            case "RoundResultPanel":
+            case "RoundResultYellowStripe":
+            case "RoundResultBlueStripe":
+            case "RoundResultRedStripe":
+            case "RoundResultP1WordText":
+            case "RoundResultP2WordText":
+            case "RoundResultDeathLabelText":
+            case "RoundResultP1ScoreText":
+            case "RoundResultP2ScoreText":
+            case "RoundResultP1ScoreBar":
+            case "RoundResultP2ScoreBar":
+            case "RoundResultDeathLineGroup":
                 return true;
             default:
                 return false;
@@ -2347,6 +3216,10 @@ public class MainUIController : MonoBehaviour
             case MainUIState.Gameplay:
                 EnsureGameplayElementsView();
                 break;
+            case MainUIState.RoundResult:
+                EnsurePromptSharedView();
+                EnsureRoundResultElementsView();
+                break;
         }
     }
 
@@ -2361,6 +3234,12 @@ public class MainUIController : MonoBehaviour
                 PrepareGameplayStart();
                 SetSharedPromptVisibleForGameplay();
                 SetGameplayPlayerIconsVisible();
+                break;
+            case MainUIState.RoundResult:
+                PrepareRoundResultStart();
+                ConfigureRoundResultStripes();
+                SetSharedPromptVisibleForRoundResult();
+                SetRoundResultPlayerIconsVisible();
                 break;
         }
     }
@@ -2433,12 +3312,36 @@ public class MainUIController : MonoBehaviour
             }
         }
 
+        if (_roundResultElementsGroupRect == null)
+        {
+            var roundResultRoot = FindRoundResultElementsRoot();
+            if (roundResultRoot != null)
+            {
+                _roundResultElementsGroupRect = roundResultRoot;
+                changed = true;
+            }
+        }
+        if (_roundResultElementsGroup == null && _roundResultElementsGroupRect != null)
+        {
+            var roundResultGroup = _roundResultElementsGroupRect.GetComponent<CanvasGroup>();
+            if (roundResultGroup != null)
+            {
+                _roundResultElementsGroup = roundResultGroup;
+                changed = true;
+            }
+        }
+
         changed |= AddVisibleGroupToSerializedState(MainUIState.PromptShowcase, _promptSharedGroup);
         changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _promptSharedGroup);
         changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _gameplayElementsGroup);
         changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, GetInputFieldStateGroup());
         changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _waitingP1Group);
         changed |= AddVisibleGroupToSerializedState(MainUIState.Gameplay, _waitingP2Group);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _roundResultElementsGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _promptSharedGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, GetDecorativeLineStateGroup());
+        changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _waitingP1Group);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _waitingP2Group);
 
         return changed;
     }
@@ -2534,6 +3437,20 @@ public class MainUIController : MonoBehaviour
     CanvasGroup GetInputFieldStateGroup()
     {
         return _inputFieldRect != null ? _inputFieldRect.GetComponent<CanvasGroup>() : null;
+    }
+
+    CanvasGroup GetDecorativeLineStateGroup()
+    {
+        if (_decorativeLines == null) return null;
+
+        foreach (var line in _decorativeLines)
+        {
+            if (line?.rect == null) continue;
+            var parent = line.rect.parent;
+            return parent != null ? parent.GetComponent<CanvasGroup>() : null;
+        }
+
+        return null;
     }
 
     bool IsManuallyRevealed(MainUIState state, CanvasGroup cg)
