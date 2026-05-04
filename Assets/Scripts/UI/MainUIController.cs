@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 using DG.Tweening;
 using TMPro;
 using UnityEngine;
@@ -106,6 +107,10 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _duration = 0.8f;
     [SerializeField] Ease _ease = Ease.InOutQuad;
 
+    [Header("Debug Navigation")]
+    [SerializeField] bool _enableDebugNextStateKey = true;
+    [SerializeField] KeyCode _debugNextStateKey = KeyCode.Y;
+
     [Header("State Visibility")]
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
@@ -185,6 +190,32 @@ public class MainUIController : MonoBehaviour
     [SerializeField] CanvasGroup _loadingScreenGroup;
     [SerializeField] float _loadingWipeDuration = 1.2f;
     [SerializeField] Ease _loadingWipeEase = Ease.OutQuad;
+    [SerializeField] float _loadingAutoPromptDelay = 2f;
+
+    [Header("Prompt Showcase - Generated View")]
+    [SerializeField] RectTransform _promptShowcaseRoot;
+    [SerializeField] CanvasGroup _promptShowcaseGroup;
+    [SerializeField] Image _promptShowcaseBackground;
+    [SerializeField] RectTransform _promptPromptMask;
+    [SerializeField] RectTransform _promptBannedMask;
+    [SerializeField] TMP_Text _promptTitleText;
+    [SerializeField] TMP_Text _promptBannedText;
+    [SerializeField] TMP_Text _promptMaskTitleText;
+    [SerializeField] TMP_Text _promptMaskBannedText;
+    [SerializeField] string _promptText = "start with \"a\"";
+    [SerializeField] string _promptMaskText = "start with";
+    [SerializeField] string _promptMaskBannedTextValue = "banned letters";
+    [SerializeField] string _promptBannedLetters = "i";
+    [SerializeField] Color _promptPaperColor = new Color(1f, 0.9882353f, 0.96862745f, 1f);
+    [SerializeField] Color _promptInkColor = new Color(0.14509805f, 0.14509805f, 0.14509805f, 1f);
+    [SerializeField] Color _promptMaskTitleColor = new Color(0.93333334f, 0.91764706f, 0.89411765f, 1f);
+    [SerializeField] Color _promptMaskBannedTextColor = new Color(1f, 0.9882353f, 0.96862745f, 1f);
+    [SerializeField] Color _promptBannedLetterColor = new Color(1f, 0f, 1f, 1f);
+    [SerializeField] float _promptMaskEnterDuration = 0.8f;
+    [SerializeField] float _promptTextFadeDuration = 0.35f;
+    [SerializeField] float _promptHoldBeforeRevealSeconds = 2f;
+    [SerializeField] float _promptMaskRevealDuration = 1f;
+    [SerializeField] Ease _promptMaskRevealEase = Ease.OutCubic;
 
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
@@ -230,6 +261,47 @@ public class MainUIController : MonoBehaviour
     void Start()
     {
         if (_playIntroOnStart) PlayIntro();
+    }
+
+    void Update()
+    {
+        if (!_enableDebugNextStateKey) return;
+        if (Input.GetKeyDown(_debugNextStateKey))
+            TransitionToNextDebugState();
+    }
+
+    void TransitionToNextDebugState()
+    {
+        switch (_currentState)
+        {
+            case MainUIState.Start:
+                TransitionToTutorial();
+                break;
+            case MainUIState.Tutorial:
+                TransitionToRoomId();
+                break;
+            case MainUIState.RoomId:
+                TransitionToWaiting();
+                break;
+            case MainUIState.Waiting:
+                TransitionToLoading();
+                break;
+            case MainUIState.Loading:
+                TransitionToPromptShowcase();
+                break;
+            case MainUIState.PromptShowcase:
+                TransitionToGameplay();
+                break;
+            case MainUIState.Gameplay:
+                TransitionToRoundResult();
+                break;
+            case MainUIState.RoundResult:
+                TransitionToGameEnd();
+                break;
+            case MainUIState.GameEnd:
+                ResetToStart();
+                break;
+        }
     }
 
     [ContextMenu("Play Intro")]
@@ -442,8 +514,19 @@ public class MainUIController : MonoBehaviour
 
         var seq = DOTween.Sequence().SetId(this);
         seq.Append(_loadingScreenRect.DOScaleY(1f, _loadingWipeDuration).SetEase(_loadingWipeEase));
-        seq.OnComplete(SetLoadingWipeComplete);
+        seq.OnComplete(() =>
+        {
+            SetLoadingWipeComplete();
+            StartCoroutine(AutoPromptAfterLoadingRoutine());
+        });
         _currentState = MainUIState.Loading;
+    }
+
+    IEnumerator AutoPromptAfterLoadingRoutine()
+    {
+        yield return new WaitForSeconds(_loadingAutoPromptDelay);
+        if (_currentState == MainUIState.Loading)
+            TransitionToPromptShowcase();
     }
 
     void PrepareLoadingWipeStart()
@@ -499,7 +582,103 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Prompt Showcase")]
     public void TransitionToPromptShowcase()
     {
+        if (_currentState == MainUIState.Loading)
+        {
+            TransitionFromLoadingToPromptShowcase();
+            return;
+        }
+
         TransitionToConfiguredState(MainUIState.PromptShowcase);
+    }
+
+    void TransitionFromLoadingToPromptShowcase()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        EnsurePromptShowcaseView();
+        PreparePromptShowcaseStart();
+
+        if (_promptShowcaseRoot != null)
+            _promptShowcaseRoot.SetAsLastSibling();
+
+        var seq = DOTween.Sequence().SetId(this);
+
+        if (_loadingScreenGroup != null)
+            _loadingScreenGroup.alpha = 1f;
+
+        var hasEnterTween = false;
+        if (_promptPromptMask != null)
+        {
+            seq.Append(_promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
+            hasEnterTween = true;
+        }
+        if (_promptBannedMask != null)
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
+        if (_promptMaskTitleText != null)
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptMaskTitleText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
+        if (_promptMaskBannedText != null)
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptMaskBannedText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
+
+        seq.AppendCallback(SetPromptBaseTextVisible);
+        seq.AppendInterval(_promptHoldBeforeRevealSeconds);
+        var hasRevealTween = false;
+        if (_promptPromptMask != null)
+            AddPromptRevealTween(seq, ref hasRevealTween, _promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
+        if (_promptBannedMask != null)
+            AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
+        if (_promptMaskTitleText != null)
+            AddPromptRevealTween(seq, ref hasRevealTween, _promptMaskTitleText.rectTransform.DOAnchorPosX(GetPromptMaskTitleTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
+        if (_promptMaskBannedText != null)
+            AddPromptRevealTween(seq, ref hasRevealTween, _promptMaskBannedText.rectTransform.DOAnchorPosX(GetPromptMaskBannedTextTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
+
+        seq.OnComplete(() =>
+        {
+            if (_promptShowcaseBackground != null)
+                _promptShowcaseBackground.color = _promptPaperColor;
+        });
+
+        _currentState = MainUIState.PromptShowcase;
+    }
+
+    void AddPromptEnterTween(Sequence seq, ref bool hasEnterTween, Tween tween)
+    {
+        if (seq == null || tween == null) return;
+
+        if (hasEnterTween)
+            seq.Join(tween);
+        else
+        {
+            seq.Append(tween);
+            hasEnterTween = true;
+        }
+    }
+
+    void AddPromptRevealTween(Sequence seq, ref bool hasRevealTween, Tween tween)
+    {
+        if (seq == null || tween == null) return;
+
+        if (hasRevealTween)
+            seq.Join(tween);
+        else
+        {
+            seq.Append(tween);
+            hasRevealTween = true;
+        }
+    }
+
+    [ContextMenu("Build Prompt Showcase View")]
+    void BuildPromptShowcaseView()
+    {
+        EnsurePromptShowcaseView();
+        PreparePromptShowcaseStart();
+        if (_promptShowcaseGroup != null)
+            _promptShowcaseGroup.alpha = 1f;
+#if UNITY_EDITOR
+        UnityEditor.EditorUtility.SetDirty(this);
+        if (_promptShowcaseRoot != null)
+            UnityEditor.EditorUtility.SetDirty(_promptShowcaseRoot.gameObject);
+#endif
     }
 
     [ContextMenu("Transition To Gameplay")]
@@ -527,8 +706,10 @@ public class MainUIController : MonoBehaviour
 
         if (_hintCycler != null) _hintCycler.StopCycling();
 
+        var previousState = _currentState;
         var seq = DOTween.Sequence().SetId(this);
         FadeStateDifference(seq, _currentState, targetState);
+        AddPromptShowcaseVisibilityTween(seq, previousState, targetState);
 
         var animationSet = GetStateAnimationSet(targetState);
         if (animationSet != null)
@@ -695,6 +876,279 @@ public class MainUIController : MonoBehaviour
             SetLoadingWipeComplete();
         if (_loadingScreenGroup != null)
             _loadingScreenGroup.alpha = 0f;
+
+        EnsurePromptShowcaseView();
+        PreparePromptShowcaseStart();
+        if (_promptShowcaseGroup != null)
+            _promptShowcaseGroup.alpha = 0f;
+    }
+
+    void EnsurePromptShowcaseView()
+    {
+        if (_promptShowcaseRoot == null)
+            _promptShowcaseRoot = FindChildRect(transform, "PromptShowcaseRoot");
+        if (_promptShowcaseRoot == null)
+            _promptShowcaseRoot = CreateRect("PromptShowcaseRoot", transform);
+
+        StretchToParent(_promptShowcaseRoot);
+
+        if (_promptShowcaseGroup == null)
+            _promptShowcaseGroup = _promptShowcaseRoot.GetComponent<CanvasGroup>();
+        if (_promptShowcaseGroup == null)
+            _promptShowcaseGroup = _promptShowcaseRoot.gameObject.AddComponent<CanvasGroup>();
+
+        if (_promptShowcaseBackground == null)
+            _promptShowcaseBackground = GetOrCreateImage("PromptBackground", _promptShowcaseRoot, _promptPaperColor).image;
+        StretchToParent(_promptShowcaseBackground.rectTransform);
+
+        var fontSource = GetComponentInChildren<TMP_Text>(true);
+        _promptTitleText = GetOrCreatePromptText(
+            _promptTitleText,
+            "PromptTitleText",
+            _promptText,
+            new Vector2(-60f, -25f),
+            new Vector2(1400f, 260f),
+            184f,
+            fontSource);
+        _promptBannedText = GetOrCreatePromptText(
+            _promptBannedText,
+            "PromptBannedText",
+            "banned letter \"i\"",
+            new Vector2(160f, -210f),
+            new Vector2(1100f, 100f),
+            58f,
+            fontSource);
+        _promptMaskTitleText = GetOrCreatePromptText(
+            _promptMaskTitleText,
+            "PromptMaskTitleText",
+            _promptMaskText,
+            new Vector2(-60f, -25f),
+            new Vector2(1400f, 260f),
+            184f,
+            fontSource);
+        _promptMaskBannedText = GetOrCreatePromptText(
+            _promptMaskBannedText,
+            "PromptMaskBannedText",
+            _promptMaskBannedTextValue,
+            new Vector2(160f, -210f),
+            new Vector2(1100f, 100f),
+            58f,
+            fontSource);
+
+        if (_promptPromptMask == null)
+            _promptPromptMask = GetOrCreateImage("PromptMainBlackMask", _promptShowcaseRoot, _promptInkColor).rect;
+        if (_promptBannedMask == null)
+            _promptBannedMask = GetOrCreateImage("PromptBannedBlackMask", _promptShowcaseRoot, _promptInkColor).rect;
+    }
+
+    void PreparePromptShowcaseStart()
+    {
+        EnsurePromptShowcaseView();
+
+        if (_promptShowcaseGroup != null)
+        {
+            _promptShowcaseGroup.alpha = 1f;
+            _promptShowcaseGroup.interactable = false;
+            _promptShowcaseGroup.blocksRaycasts = false;
+        }
+
+        if (_promptShowcaseBackground != null)
+            _promptShowcaseBackground.color = _promptPaperColor;
+
+        if (_promptTitleText != null)
+        {
+            _promptTitleText.color = _promptInkColor;
+            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.alpha = 0f;
+        }
+        if (_promptBannedText != null)
+        {
+            _promptBannedText.color = _promptInkColor;
+            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.alpha = 0f;
+        }
+        if (_promptMaskTitleText != null)
+        {
+            _promptMaskTitleText.richText = false;
+            _promptMaskTitleText.overrideColorTags = true;
+            _promptMaskTitleText.color = _promptMaskTitleColor;
+            _promptMaskTitleText.text = _promptMaskText;
+            _promptMaskTitleText.alpha = 0f;
+            _promptMaskTitleText.rectTransform.anchoredPosition = new Vector2(GetPromptMaskTitleTargetX(), -25f);
+            _promptMaskTitleText.transform.SetAsLastSibling();
+        }
+        if (_promptMaskBannedText != null)
+        {
+            _promptMaskBannedText.richText = false;
+            _promptMaskBannedText.overrideColorTags = true;
+            _promptMaskBannedText.color = _promptMaskBannedTextColor;
+            _promptMaskBannedText.text = _promptMaskBannedTextValue;
+            _promptMaskBannedText.alpha = 0f;
+            _promptMaskBannedText.rectTransform.anchoredPosition = new Vector2(GetPromptMaskBannedTextTargetX(), -210f);
+            _promptMaskBannedText.transform.SetAsLastSibling();
+        }
+
+        if (_promptPromptMask != null)
+        {
+            _promptPromptMask.anchorMin = new Vector2(0.5f, 0.5f);
+            _promptPromptMask.anchorMax = new Vector2(0.5f, 0.5f);
+            _promptPromptMask.pivot = new Vector2(0.5f, 0.5f);
+            _promptPromptMask.anchoredPosition = new Vector2(GetPromptMaskMainStartX(), 65f);
+            _promptPromptMask.sizeDelta = new Vector2(5000f, 397f);
+            _promptPromptMask.localScale = Vector3.one;
+            _promptPromptMask.transform.SetSiblingIndex(Mathf.Max(0, _promptShowcaseRoot.childCount - 3));
+        }
+
+        if (_promptBannedMask != null)
+        {
+            _promptBannedMask.anchorMin = new Vector2(0.5f, 0.5f);
+            _promptBannedMask.anchorMax = new Vector2(0.5f, 0.5f);
+            _promptBannedMask.pivot = new Vector2(0.5f, 0.5f);
+            _promptBannedMask.anchoredPosition = new Vector2(GetPromptMaskBannedStartX(), -185f);
+            _promptBannedMask.sizeDelta = new Vector2(1980f, 133f);
+            _promptBannedMask.localScale = Vector3.one;
+            _promptBannedMask.transform.SetSiblingIndex(Mathf.Max(0, _promptShowcaseRoot.childCount - 3));
+        }
+    }
+
+    float GetPromptMaskMainTargetX() => 1480f;
+    float GetPromptMaskMainStartX() => GetPromptMaskMainTargetX() - 5000f;
+    float GetPromptMaskBannedTargetX() => -30f;
+    float GetPromptMaskBannedStartX() => GetPromptMaskBannedTargetX() - 1980f;
+    float GetPromptMaskTitleTargetX() => -60f;
+    float GetPromptMaskBannedTextTargetX() => 160f;
+
+    void SetPromptBaseTextVisible()
+    {
+        if (_promptTitleText != null)
+            _promptTitleText.alpha = 1f;
+        if (_promptBannedText != null)
+            _promptBannedText.alpha = 1f;
+    }
+
+    string GetBannedLetterRevealText()
+    {
+        if (string.IsNullOrEmpty(_promptBannedLetters))
+            return "banned letters";
+
+        return _promptBannedLetters.Length == 1
+            ? $"banned letter \"{_promptBannedLetters}\""
+            : $"banned letters \"{_promptBannedLetters}\"";
+    }
+
+    string GetPromptTextWithBannedLetters(string source)
+    {
+        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(_promptBannedLetters))
+            return source;
+
+        var colorHex = ColorUtility.ToHtmlStringRGB(_promptBannedLetterColor);
+        var result = new StringBuilder(source.Length);
+        foreach (var c in source)
+        {
+            if (IsBannedPromptLetter(c))
+                result.Append("<color=#").Append(colorHex).Append(">").Append(c).Append("</color>");
+            else
+                result.Append(c);
+        }
+
+        return result.ToString();
+    }
+
+    bool IsBannedPromptLetter(char c)
+    {
+        foreach (var banned in _promptBannedLetters)
+        {
+            if (char.ToUpperInvariant(c) == char.ToUpperInvariant(banned))
+                return true;
+        }
+
+        return false;
+    }
+
+    (RectTransform rect, Image image) GetOrCreateImage(string childName, RectTransform parent, Color color)
+    {
+        var rect = FindChildRect(parent, childName);
+        if (rect == null)
+            rect = CreateRect(childName, parent);
+
+        var image = rect.GetComponent<Image>();
+        if (image == null)
+            image = rect.gameObject.AddComponent<Image>();
+
+        image.color = color;
+        image.raycastTarget = false;
+        return (rect, image);
+    }
+
+    TMP_Text GetOrCreatePromptText(TMP_Text current, string childName, string text, Vector2 anchoredPos, Vector2 size, float fontSize, TMP_Text fontSource)
+    {
+        if (current == null)
+        {
+            var rect = FindChildRect(_promptShowcaseRoot, childName);
+            if (rect == null)
+                rect = CreateRect(childName, _promptShowcaseRoot);
+            current = rect.GetComponent<TMP_Text>();
+            if (current == null)
+                current = rect.gameObject.AddComponent<TextMeshProUGUI>();
+        }
+
+        var textRect = current.rectTransform;
+        textRect.anchorMin = new Vector2(0.5f, 0.5f);
+        textRect.anchorMax = new Vector2(0.5f, 0.5f);
+        textRect.pivot = new Vector2(0.5f, 0.5f);
+        textRect.anchoredPosition = anchoredPos;
+        textRect.sizeDelta = size;
+        textRect.localScale = Vector3.one;
+
+        current.text = text;
+        current.color = _promptInkColor;
+        current.fontSize = fontSize;
+        current.enableAutoSizing = false;
+        current.richText = true;
+        current.alignment = TextAlignmentOptions.Center;
+        current.raycastTarget = false;
+        if (fontSource != null && fontSource.font != null)
+        {
+            current.font = fontSource.font;
+            current.fontSharedMaterial = fontSource.fontSharedMaterial;
+        }
+
+        return current;
+    }
+
+    RectTransform FindChildRect(Transform parent, string childName)
+    {
+        if (parent == null) return null;
+
+        for (var i = 0; i < parent.childCount; i++)
+        {
+            var child = parent.GetChild(i);
+            if (child.name == childName && child is RectTransform rect)
+                return rect;
+        }
+
+        return null;
+    }
+
+    RectTransform CreateRect(string childName, Transform parent)
+    {
+        var go = new GameObject(childName, typeof(RectTransform));
+        go.layer = gameObject.layer;
+        var rect = go.GetComponent<RectTransform>();
+        rect.SetParent(parent, false);
+        return rect;
+    }
+
+    void StretchToParent(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = Vector2.zero;
+        rect.localScale = Vector3.one;
     }
 
     [ContextMenu("Capture Current As Configured State Target")]
@@ -939,7 +1393,30 @@ public class MainUIController : MonoBehaviour
             cg.alpha = ContainsGroup(GetVisibleGroups(state), cg) && !IsManuallyRevealed(state, cg) ? 1f : 0f;
         }
 
+        if (_promptShowcaseGroup != null)
+            _promptShowcaseGroup.alpha = state == MainUIState.PromptShowcase ? 1f : 0f;
+
         _currentState = state;
+    }
+
+    void AddPromptShowcaseVisibilityTween(Sequence seq, MainUIState from, MainUIState to)
+    {
+        if (seq == null || (from != MainUIState.PromptShowcase && to != MainUIState.PromptShowcase)) return;
+
+        EnsurePromptShowcaseView();
+
+        if (_promptShowcaseGroup == null) return;
+
+        if (to == MainUIState.PromptShowcase)
+        {
+            PreparePromptShowcaseStart();
+            _promptShowcaseGroup.alpha = 0f;
+            seq.Join(_promptShowcaseGroup.DOFade(1f, _fadeOutDuration).SetEase(_ease));
+        }
+        else
+        {
+            seq.Join(_promptShowcaseGroup.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+        }
     }
 
     List<CanvasGroup> GetAllStateGroups()

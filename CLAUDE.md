@@ -79,7 +79,7 @@ StartScreen → Tutorial → CreateJoin → WaitingRoom → Loading →
 PromptShowcase → Gameplay → RoundResult → GameEnd
 ```
 
-The new flow uses `Assets/Prefabs/UI/MainUI.prefab` with a single `MainUIController` + state enum for animation previews. Start/Tutorial/CreateJoin/Waiting reuse shared GameObjects that morph between states via DOTween, rather than swapping independent panels. Waiting -> Loading is a separate white-field transition layer (`LoadingScreenRoot`) using the XD/project off-white background color; it is UI-only and not wired to gameplay/network flow yet. Later states (`PromptShowcase`, `Gameplay`, `RoundResult`, `GameEnd`) have controller hooks/config slots but still need their actual prefab UI content before logic wiring.
+The new flow uses `Assets/Prefabs/UI/MainUI.prefab` with a single `MainUIController` + state enum for animation previews. Start/Tutorial/CreateJoin/Waiting reuse shared GameObjects that morph between states via DOTween, rather than swapping independent panels. Waiting -> Loading is a separate white-field transition layer (`LoadingScreenRoot`) using the XD/project off-white background color; once the wipe completes, Loading auto-advances to PromptShowcase after a short delay. PromptShowcase currently uses a runtime-generated `PromptShowcaseRoot` (via `MainUIController`) for the white background, black prompt masks, mask text, reveal text, and banned-letter highlight preview. The debug navigation key `Y` advances through the new flow for animation review. This UI is presentation-only and not wired to gameplay/network flow yet. Later states (`Gameplay`, `RoundResult`, `GameEnd`) have controller hooks/config slots but still need their actual prefab UI content before logic wiring.
 
 UI uses Unity UI (Canvas + TMP) for the project's own screens. `Assets/Blocks/` is a **third-party Unity sample kit** (Multiplayer Widgets / Sessions building blocks — `CopySessionCode`, `LeaveSession`, `PlayerList`, etc.) and is not the project's own UI code; treat it as a vendored package.
 
@@ -101,7 +101,7 @@ UI uses Unity UI (Canvas + TMP) for the project's own screens. `Assets/Blocks/` 
 - **Resources** (loaded at runtime via `Resources.Load`):
   - `Assets/Resources/Scrabble Dictionary.txt` — word list (loaded by `WordChecker`)
   - `Assets/Resources/EntryPrompts.json` — themed prompt data
-  - `Assets/Resources/Design/` — reference screenshots from Adobe XD spec (`2p_1`…`2p_9`)
+  - XD/reference images currently live as loose Resources images such as `ui reference.png`, `1.0 1.png`, `2.0 1.png`, and `3.0 1.png`; there is no `Assets/Resources/Design/` folder in this checkout.
   - Audio/image assets also live at the root of `Resources/`
 
 ## Project Conventions
