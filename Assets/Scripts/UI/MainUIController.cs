@@ -11,11 +11,13 @@ using UnityEngine.UI;
 public class MainUIController : MonoBehaviour
 {
     const string PromptSharedGroupName = "PromptSharedGroup";
+    const string DesignOverlayGroupName = "Design";
+    const string PromptCalibrationOverlayName = "PromptCalibrationOverlay";
     const string DeprecatedPromptShowcaseRootName = "PromptShowcaseRoot";
     const string GameplayElementsGroupName = "GameplayElementsGroup";
     const string DeprecatedGameplayRootName = "GameplayRoot";
     const string RoundResultElementsGroupName = "RoundResultElementsGroup";
-    const int RoundResultLayoutVersion = 14;
+    const int RoundResultLayoutVersion = 17;
 
 #if UNITY_EDITOR
     const string MainUIPrefabPath = "Assets/Prefabs/UI/MainUI.prefab";
@@ -48,6 +50,13 @@ public class MainUIController : MonoBehaviour
         public MainUIState state;
         public CanvasGroup[] visibleGroups;
         public CanvasGroup[] manuallyRevealedGroups;
+    }
+
+    [System.Serializable]
+    public class StateDesignReference
+    {
+        public MainUIState state;
+        public int referenceImageIndex = -1;
     }
 
     [System.Serializable]
@@ -122,6 +131,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Vector2 _barTutorialAnchoredPos = new Vector2(0f, 0f);
     [SerializeField] Vector2 _barTutorialSize = new Vector2(1600f, 600f);
     [SerializeField] float _stripeNarrowWidth = 12f;
+    [SerializeField] float _cmykShapePhaseRatio = 0.48f;
     // K auto-fills remaining width via LayoutElement.flexibleWidth on the K GameObject.
 
     [Header("Animation")]
@@ -191,6 +201,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Vector2 _waitingPanelStartSize;
     [SerializeField] Vector2 _waitingPanelTargetSize;
     [SerializeField] float _waitingPanelRevealAmount = 100f;
+    [SerializeField] float _waitingPanelYOffset = 24f;
     [SerializeField] float _waitingPanelRevealDelay = 0.15f;
     [SerializeField] float _waitingPanelRevealDuration = 0.3f;
 
@@ -229,7 +240,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] TMP_Text _promptBannedText;
     [SerializeField] string _promptText = "start with \"a\"";
     [SerializeField] string _promptMaskText = "start with";
-    [SerializeField] string _promptMaskBannedTextValue = "banned letters";
+    [SerializeField] string _promptMaskBannedTextValue = "banned letter";
     [SerializeField] string _promptBannedLetters = "i";
     [SerializeField] Color _promptPaperColor = new Color(1f, 0.9882353f, 0.96862745f, 1f);
     [SerializeField] Color _promptInkColor = new Color(0.14509805f, 0.14509805f, 0.14509805f, 1f);
@@ -291,12 +302,28 @@ public class MainUIController : MonoBehaviour
     [SerializeField] int _roundResultP2Score = 18;
     [SerializeField] Color _roundResultTextColor = new Color(0.93333334f, 0.91764706f, 0.89411765f, 1f);
     [SerializeField] Color _roundResultMutedTextColor = new Color(0.53333336f, 0.5254902f, 0.5137255f, 1f);
+    [SerializeField] Color _roundResultTopStripeColor = new Color(0.38823533f, 0.3803922f, 0.37647063f, 1f);
+    [SerializeField] Color _roundResultMiddleStripeColor = new Color(0.53333336f, 0.52156866f, 0.5019608f, 1f);
+    [SerializeField] Color _roundResultBottomStripeColor = new Color(0.74509805f, 0.73333335f, 0.7137255f, 1f);
     [SerializeField] float _roundResultTransitionDuration = 0.45f;
     [SerializeField] float _roundResultFadeGameplayDuration = 0.3f;
     [SerializeField] float _roundResultPanelMorphDuration = 0.55f;
     [SerializeField] float _roundResultStripeRevealDuration = 0.35f;
     [SerializeField] float _roundResultContentFadeDuration = 0.35f;
     [SerializeField] float _roundResultContentStagger = 0.05f;
+
+    [Header("Design Calibration Overlay")]
+    [SerializeField] bool _showPromptCalibrationOverlay;
+    [SerializeField] bool _showExistingDesignReferenceImages = true;
+    [SerializeField] bool _autoSelectDesignReferenceForCurrentState = true;
+    [SerializeField] int _promptCalibrationReferenceImageIndex;
+    [SerializeField] StateDesignReference[] _stateDesignReferences;
+    [SerializeField] Color _promptTitleBoundsOverlayColor = new Color(1f, 0.92f, 0f, 0.18f);
+    [SerializeField] Color _promptBannedBoundsOverlayColor = new Color(0f, 0.7f, 1f, 0.18f);
+    [SerializeField] RectTransform _designOverlayRoot;
+    [SerializeField] RectTransform _promptCalibrationOverlayRoot;
+    [SerializeField] RectTransform _promptTitleVisualBoundsOverlay;
+    [SerializeField] RectTransform _promptBannedVisualBoundsOverlay;
 
     [Header("Initial State (capture via context menu)")]
     [SerializeField] Vector2 _initBarPos;
@@ -342,7 +369,8 @@ public class MainUIController : MonoBehaviour
         var needsSharedPromptAndGameplay = !assetController.HasPrefabOwnedSharedPromptAndGameplayUi();
         var needsRoundResult = !assetController.HasPrefabOwnedRoundResultUi();
         var needsRoundResultLayout = !needsRoundResult && assetController._roundResultLayoutVersion != RoundResultLayoutVersion;
-        if (!needsSharedPromptAndGameplay && !needsRoundResult && !needsRoundResultLayout) return;
+        var needsPromptCalibrationOverlay = !assetController.HasPrefabOwnedPromptCalibrationOverlay();
+        if (!needsSharedPromptAndGameplay && !needsRoundResult && !needsRoundResultLayout && !needsPromptCalibrationOverlay) return;
 
         var prefabRoot = UnityEditor.PrefabUtility.LoadPrefabContents(MainUIPrefabPath);
         if (prefabRoot == null) return;
@@ -357,6 +385,8 @@ public class MainUIController : MonoBehaviour
                 controller.BuildPrefabOwnedSharedPromptAndGameplayUi();
             if (needsRoundResult || needsRoundResultLayout)
                 controller.BuildPrefabOwnedRoundResultUi();
+            if (needsPromptCalibrationOverlay)
+                controller.BuildPromptCalibrationOverlayUi();
             UnityEditor.PrefabUtility.SaveAsPrefabAsset(prefabRoot, MainUIPrefabPath);
         }
         finally
@@ -385,6 +415,7 @@ public class MainUIController : MonoBehaviour
 
         EnsurePromptSharedView();
         EnsureGameplayElementsView();
+        EnsurePromptCalibrationOverlayView(true);
         PrepareGameplayStart();
         SyncGeneratedStateGroupsForInspector();
         SetStateVisibilityImmediate(_currentState);
@@ -406,6 +437,51 @@ public class MainUIController : MonoBehaviour
         SyncGeneratedStateGroupsForInspector();
         SetStateVisibilityImmediate(_currentState);
         UnityEditor.EditorUtility.SetDirty(this);
+    }
+
+    [ContextMenu("Build Prompt Calibration Overlay")]
+    void BuildPromptCalibrationOverlayUi()
+    {
+        if (!CanEditPrefabAssetStructure())
+        {
+            BuildPromptCalibrationOverlayOnPrefabAsset();
+            return;
+        }
+
+        EnsurePromptCalibrationOverlayView(true);
+        RefreshPromptCalibrationOverlay();
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+
+    void BuildPromptCalibrationOverlayOnPrefabAsset()
+    {
+        var prefabRoot = UnityEditor.PrefabUtility.LoadPrefabContents(MainUIPrefabPath);
+        if (prefabRoot == null)
+        {
+            Debug.LogError($"Could not load {MainUIPrefabPath} to build prompt calibration overlay.");
+            return;
+        }
+
+        try
+        {
+            var controller = prefabRoot.GetComponent<MainUIController>();
+            if (controller == null)
+            {
+                Debug.LogError($"{MainUIPrefabPath} does not contain a MainUIController.");
+                return;
+            }
+
+            s_buildingLoadedPrefabAsset = true;
+            controller.EnsurePromptCalibrationOverlayView(true);
+            controller.RefreshPromptCalibrationOverlay();
+            UnityEditor.EditorUtility.SetDirty(controller);
+            UnityEditor.PrefabUtility.SaveAsPrefabAsset(prefabRoot, MainUIPrefabPath);
+        }
+        finally
+        {
+            s_buildingLoadedPrefabAsset = false;
+            UnityEditor.PrefabUtility.UnloadPrefabContents(prefabRoot);
+        }
     }
 
     bool HasPrefabOwnedSharedPromptAndGameplayUi()
@@ -441,6 +517,15 @@ public class MainUIController : MonoBehaviour
             && FindChildRect(roundResultRoot, "RoundResultYellowStripe") == null
             && FindChildRect(roundResultRoot, "RoundResultBlueStripe") == null
             && FindChildRect(roundResultRoot, "RoundResultRedStripe") == null;
+    }
+
+    bool HasPrefabOwnedPromptCalibrationOverlay()
+    {
+        var designRoot = _designOverlayRoot != null ? _designOverlayRoot : FindChildRect(transform, DesignOverlayGroupName);
+        var overlayRoot = designRoot != null ? FindChildRect(designRoot, PromptCalibrationOverlayName) : null;
+        return overlayRoot != null
+            && HasImageChild(overlayRoot, "PromptTitleVisualBounds")
+            && HasImageChild(overlayRoot, "PromptBannedVisualBounds");
     }
 
     bool HasImageChild(RectTransform parent, string childName)
@@ -528,8 +613,10 @@ public class MainUIController : MonoBehaviour
 
     void Update()
     {
-        if (!_enableDebugNextStateKey) return;
-        if (Input.GetKeyDown(_debugNextStateKey))
+        if (_showPromptCalibrationOverlay)
+            RefreshPromptCalibrationOverlay();
+
+        if (_enableDebugNextStateKey && Input.GetKeyDown(_debugNextStateKey))
             TransitionToNextDebugState();
     }
 
@@ -595,20 +682,7 @@ public class MainUIController : MonoBehaviour
         var seq = DOTween.Sequence().SetId(this);
         FadeStateDifference(seq, _currentState, MainUIState.Tutorial);
 
-        // Skew -> 0 (parallelogram -> rectangle)
-        seq.Join(TweenSkew(_graphicM, 0f));
-        seq.Join(TweenSkew(_graphicY, 0f));
-        seq.Join(TweenSkew(_graphicC, 0f));
-        seq.Join(TweenSkew(_graphicK, 0f));
-
-        // Stripe widths: M/Y/C become narrow, K auto-fills via flexibleWidth
-        seq.Join(TweenPreferredWidth(_layoutM, _stripeNarrowWidth));
-        seq.Join(TweenPreferredWidth(_layoutY, _stripeNarrowWidth));
-        seq.Join(TweenPreferredWidth(_layoutC, _stripeNarrowWidth));
-
-        // Parent: move and resize to tutorial rectangle
-        seq.Join(_cmykBar.DOAnchorPos(_barTutorialAnchoredPos, _duration).SetEase(_ease));
-        seq.Join(_cmykBar.DOSizeDelta(_barTutorialSize, _duration).SetEase(_ease));
+        AddCmykBarToTutorialTween(seq);
 
         // Input field: disable editing, fade text/placeholder/caret, shrink height
         if (_inputField != null)
@@ -652,16 +726,10 @@ public class MainUIController : MonoBehaviour
         var seq = DOTween.Sequence().SetId(this);
         FadeStateDifference(seq, _currentState, MainUIState.RoomId);
 
-        // CMYK bar: back to parallelogram with room-id pos/size and stripe widths
-        seq.Join(TweenSkew(_graphicM, _roomIdSkew));
-        seq.Join(TweenSkew(_graphicY, _roomIdSkew));
-        seq.Join(TweenSkew(_graphicC, _roomIdSkew));
-        seq.Join(TweenSkew(_graphicK, _roomIdSkew));
-        seq.Join(TweenPreferredWidth(_layoutM, _roomIdMWidth));
-        seq.Join(TweenPreferredWidth(_layoutY, _roomIdYWidth));
-        seq.Join(TweenPreferredWidth(_layoutC, _roomIdCWidth));
-        seq.Join(_cmykBar.DOAnchorPos(_barRoomIdAnchoredPos, _duration).SetEase(_ease));
-        seq.Join(_cmykBar.DOSizeDelta(_barRoomIdSize, _duration).SetEase(_ease));
+        if (_currentState == MainUIState.Tutorial)
+            AddCmykBarFromTutorialToRoomIdTween(seq);
+        else
+            AddCmykBarToRoomIdTween(seq);
 
         // Input field: re-enable editing, swap placeholder, fade content in, resize
         if (_inputField != null)
@@ -698,7 +766,7 @@ public class MainUIController : MonoBehaviour
         if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Hide();
         if (_roomIdTitleGroup != null) _roomIdTitleGroup.alpha = 0f;
         if (_roomIdHintGroup != null) _roomIdHintGroup.alpha = 0f;
-        StartCoroutine(RoomIdRevealRoutine());
+        StartCoroutine(RoomIdRevealRoutine(GetRoomIdBarTransitionSeconds()));
     }
 
     [ContextMenu("Transition To Waiting")]
@@ -715,10 +783,11 @@ public class MainUIController : MonoBehaviour
         // Decorative lines: move to waiting (top stacked) positions
         if (_decorativeLines != null)
         {
-            foreach (var l in _decorativeLines)
+            for (var i = 0; i < _decorativeLines.Length; i++)
             {
+                var l = _decorativeLines[i];
                 if (l?.rect == null) continue;
-                seq.Join(l.rect.DOAnchorPos(l.waitingAnchoredPos, _duration).SetEase(_ease));
+                seq.Join(l.rect.DOAnchorPos(GetWaitingLineTargetPosition(l, i), _duration).SetEase(_ease));
                 seq.Join(l.rect.DOSizeDelta(l.waitingSizeDelta, _duration).SetEase(_ease));
             }
         }
@@ -736,7 +805,7 @@ public class MainUIController : MonoBehaviour
         // Black panel: starts at the InputField footprint, grows up to target size
         if (_waitingPanel != null)
         {
-            _waitingPanel.anchoredPosition = _waitingPanelStartAnchoredPos;
+            _waitingPanel.anchoredPosition = GetWaitingPanelStartPosition();
             _waitingPanel.sizeDelta = _waitingPanelStartSize;
             seq.Join(_waitingPanel.DOSizeDelta(_waitingPanelTargetSize, _duration).SetEase(_ease));
         }
@@ -749,6 +818,7 @@ public class MainUIController : MonoBehaviour
         if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
         ConfigureWaitingPlayerIconsLayout();
+        ApplyWaitingTextStyles();
         if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
 
@@ -953,6 +1023,53 @@ public class MainUIController : MonoBehaviour
 #endif
     }
 
+    [ContextMenu("Toggle Prompt Calibration Overlay")]
+    void TogglePromptCalibrationOverlay()
+    {
+        _showPromptCalibrationOverlay = !_showPromptCalibrationOverlay;
+        if (!_showPromptCalibrationOverlay)
+        {
+            HidePromptCalibrationOverlay();
+            return;
+        }
+
+        RefreshPromptCalibrationOverlay();
+    }
+
+    [ContextMenu("Refresh Prompt Calibration Overlay")]
+    void RefreshPromptCalibrationOverlay()
+    {
+        EnsurePromptCalibrationOverlayView(false);
+        if (!_showPromptCalibrationOverlay)
+        {
+            HidePromptCalibrationOverlay();
+            return;
+        }
+
+        ApplyPromptCalibrationOverlayVisibility();
+
+        UpdateTextVisualBoundsOverlay(_promptTitleText, _promptTitleVisualBoundsOverlay, _promptTitleBoundsOverlayColor);
+        UpdateTextVisualBoundsOverlay(_promptBannedText, _promptBannedVisualBoundsOverlay, _promptBannedBoundsOverlayColor);
+    }
+
+    [ContextMenu("Next Prompt Calibration Reference Image")]
+    void NextPromptCalibrationReferenceImage()
+    {
+        var count = CountDesignReferenceImages();
+        if (count <= 0) return;
+
+        _autoSelectDesignReferenceForCurrentState = false;
+        _promptCalibrationReferenceImageIndex = (_promptCalibrationReferenceImageIndex + 1) % count;
+        RefreshPromptCalibrationOverlay();
+    }
+
+    [ContextMenu("Use Current State Design Reference")]
+    void UseCurrentStateDesignReference()
+    {
+        _autoSelectDesignReferenceForCurrentState = true;
+        RefreshPromptCalibrationOverlay();
+    }
+
     [ContextMenu("Transition To Gameplay")]
     public void TransitionToGameplay()
     {
@@ -1013,17 +1130,19 @@ public class MainUIController : MonoBehaviour
         if (_promptTitleText != null)
         {
             _promptTitleText.alignment = TextAlignmentOptions.Left;
+            SetCenterLeftAnchorsKeepingVisualPosition(_promptTitleText.rectTransform);
             seq.Join(_promptTitleText.rectTransform.DOAnchorPos(GetGameplayPromptPosition(), _gameplayFadeDuration).SetEase(_ease));
-            seq.Join(_promptTitleText.rectTransform.DOSizeDelta(new Vector2(1300f, 190f), _gameplayFadeDuration).SetEase(_ease));
-            seq.Join(DOTween.To(() => _promptTitleText.fontSize, x => _promptTitleText.fontSize = x, 150f, _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(_promptTitleText.rectTransform.DOSizeDelta(GetGameplayPromptSize(), _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(DOTween.To(() => _promptTitleText.fontSize, x => _promptTitleText.fontSize = x, GetGameplayPromptFontSize(), _gameplayFadeDuration).SetEase(_ease));
         }
 
         if (_promptBannedText != null)
         {
             _promptBannedText.alignment = TextAlignmentOptions.Left;
+            SetCenterLeftAnchorsKeepingVisualPosition(_promptBannedText.rectTransform);
             seq.Join(_promptBannedText.rectTransform.DOAnchorPos(GetGameplayBannedLabelPosition(), _gameplayFadeDuration).SetEase(_ease));
-            seq.Join(_promptBannedText.rectTransform.DOSizeDelta(new Vector2(1000f, 80f), _gameplayFadeDuration).SetEase(_ease));
-            seq.Join(DOTween.To(() => _promptBannedText.fontSize, x => _promptBannedText.fontSize = x, 48f, _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(_promptBannedText.rectTransform.DOSizeDelta(GetGameplayBannedLabelSize(), _gameplayFadeDuration).SetEase(_ease));
+            seq.Join(DOTween.To(() => _promptBannedText.fontSize, x => _promptBannedText.fontSize = x, GetGameplayBannedLabelFontSize(), _gameplayFadeDuration).SetEase(_ease));
         }
     }
 
@@ -1153,6 +1272,7 @@ public class MainUIController : MonoBehaviour
             if (inputGroup != null)
                 inputGroup.alpha = 0f;
             PrepareRoundResultContentForReveal();
+            SetRoundResultStripeGroupAlpha(1f);
         });
 
         AddRoundResultStripeRevealTween(seq);
@@ -1283,9 +1403,10 @@ public class MainUIController : MonoBehaviour
         }
     }
 
-    IEnumerator RoomIdRevealRoutine()
+    IEnumerator RoomIdRevealRoutine(float delayBeforeReveal)
     {
-        yield return new WaitForSeconds(_roomIdTitleDelay);
+        yield return new WaitForSeconds(Mathf.Max(0f, delayBeforeReveal + _roomIdTitleDelay));
+        ApplyRoomIdTextStyles();
         if (_roomIdTitleGroup != null) _roomIdTitleGroup.alpha = 1f;
         if (_roomIdTitleTypewriter != null)
         {
@@ -1294,7 +1415,53 @@ public class MainUIController : MonoBehaviour
         }
         yield return new WaitForSeconds(_roomIdHintGapAfterTitle);
         if (_roomIdHintGroup != null) _roomIdHintGroup.alpha = 1f;
-        if (_roomIdHintTypewriter != null) _roomIdHintTypewriter.Play();
+        if (_roomIdHintTypewriter != null)
+        {
+            _roomIdHintTypewriter.Play();
+            yield return new WaitUntil(() => !_roomIdHintTypewriter.IsPlaying);
+        }
+    }
+
+    void ApplyRoomIdTextStyles()
+    {
+        SetTypewriterTextColor(_roomIdTitleTypewriter, _promptInkColor);
+        SetTypewriterTextColor(_roomIdHintTypewriter, _promptInkColor);
+    }
+
+    void ApplyWaitingTextStyles()
+    {
+        SetTypewriterTextColor(_waitingTitleTypewriter, _promptPaperColor);
+        SetTypewriterTextColor(_waitingRoomIdTypewriter, _roundResultMutedTextColor);
+        SetTypewriterTextColor(_waitingHintTypewriter, _promptPaperColor);
+        ConfigureWaitingDotsSpacing();
+    }
+
+    void SetTypewriterTextColor(TypewriterEffect typewriter, Color color)
+    {
+        if (typewriter == null) return;
+
+        var text = typewriter.GetComponent<TMP_Text>();
+        if (text != null)
+            text.color = color;
+    }
+
+    void ConfigureWaitingDotsSpacing()
+    {
+        if (_waitingTitleGroup == null || !(_waitingTitleGroup.transform is RectTransform root)) return;
+
+        var waitingText = FindChildRect(root, "waitingUI");
+        var dots = FindChildRect(root, "....UI");
+        if (dots == null) return;
+
+        if (waitingText != null)
+        {
+            var rightEdge = waitingText.anchoredPosition.x + waitingText.sizeDelta.x * (1f - waitingText.pivot.x);
+            dots.anchoredPosition = new Vector2(rightEdge + 58f, dots.anchoredPosition.y);
+        }
+
+        var layout = dots.GetComponent<HorizontalLayoutGroup>();
+        if (layout != null)
+            layout.spacing = 52.66f;
     }
 
     IEnumerator TutorialRevealRoutine()
@@ -1317,6 +1484,7 @@ public class MainUIController : MonoBehaviour
         DOTween.Kill(this);
         StopAllCoroutines();
 
+        _cmykBar.pivot = new Vector2(0.5f, 0.5f);
         _cmykBar.anchoredPosition = _initBarPos;
         _cmykBar.sizeDelta = _initBarSize;
         _layoutM.preferredWidth = _initMWidth;
@@ -1439,6 +1607,262 @@ public class MainUIController : MonoBehaviour
             _promptBannedMask = GetOrCreateImage("PromptBannedBlackMask", _promptSharedGroupRect, _promptInkColor).rect;
     }
 
+    void EnsurePromptCalibrationOverlayView(bool createMissing)
+    {
+        if (_designOverlayRoot == null)
+            _designOverlayRoot = FindChildRect(transform, DesignOverlayGroupName);
+        if (_designOverlayRoot == null && createMissing)
+            _designOverlayRoot = CreateRect(DesignOverlayGroupName, transform);
+        if (_designOverlayRoot == null) return;
+
+        ConfigureDesignOverlayRoot(_designOverlayRoot);
+
+        if (_promptCalibrationOverlayRoot == null)
+            _promptCalibrationOverlayRoot = FindChildRect(_designOverlayRoot, PromptCalibrationOverlayName);
+        if (_promptCalibrationOverlayRoot == null && createMissing)
+            _promptCalibrationOverlayRoot = CreateRect(PromptCalibrationOverlayName, _designOverlayRoot);
+        if (_promptCalibrationOverlayRoot == null) return;
+
+        ConfigureDesignReferenceSpaceRect(_promptCalibrationOverlayRoot);
+        _promptCalibrationOverlayRoot.SetAsLastSibling();
+
+        _promptTitleVisualBoundsOverlay = EnsureCalibrationBoundsImage(
+            _promptTitleVisualBoundsOverlay,
+            "PromptTitleVisualBounds",
+            _promptTitleBoundsOverlayColor,
+            createMissing);
+        _promptBannedVisualBoundsOverlay = EnsureCalibrationBoundsImage(
+            _promptBannedVisualBoundsOverlay,
+            "PromptBannedVisualBounds",
+            _promptBannedBoundsOverlayColor,
+            createMissing);
+    }
+
+    RectTransform EnsureCalibrationBoundsImage(RectTransform current, string childName, Color color, bool createMissing)
+    {
+        if (_promptCalibrationOverlayRoot == null) return current;
+
+        if (current == null)
+            current = FindChildRect(_promptCalibrationOverlayRoot, childName);
+        if (current == null && createMissing)
+            current = CreateRect(childName, _promptCalibrationOverlayRoot);
+        if (current == null) return null;
+
+        var image = current.GetComponent<Image>();
+        if (image == null && createMissing)
+        {
+            if (!CanCreatePrefabOwnedUi($"{childName} Image")) return current;
+            image = current.gameObject.AddComponent<Image>();
+        }
+        if (image != null)
+        {
+            image.color = color;
+            image.raycastTarget = false;
+        }
+
+        current.gameObject.SetActive(_showPromptCalibrationOverlay);
+        return current;
+    }
+
+    void ApplyPromptCalibrationOverlayVisibility()
+    {
+        if (_designOverlayRoot == null) return;
+
+        if (_showPromptCalibrationOverlay && !_designOverlayRoot.gameObject.activeSelf)
+            _designOverlayRoot.gameObject.SetActive(true);
+        SetExistingDesignReferenceImagesVisible(_showPromptCalibrationOverlay && _showExistingDesignReferenceImages);
+        if (_promptCalibrationOverlayRoot != null)
+            _promptCalibrationOverlayRoot.gameObject.SetActive(_showPromptCalibrationOverlay);
+        if (_promptTitleVisualBoundsOverlay != null)
+            _promptTitleVisualBoundsOverlay.gameObject.SetActive(_showPromptCalibrationOverlay);
+        if (_promptBannedVisualBoundsOverlay != null)
+            _promptBannedVisualBoundsOverlay.gameObject.SetActive(_showPromptCalibrationOverlay);
+    }
+
+    void HidePromptCalibrationOverlay()
+    {
+        HidePromptCalibrationBounds();
+        SetExistingDesignReferenceImagesVisible(false);
+    }
+
+    void HidePromptCalibrationBounds()
+    {
+        if (_promptCalibrationOverlayRoot != null)
+            _promptCalibrationOverlayRoot.gameObject.SetActive(false);
+        if (_promptTitleVisualBoundsOverlay != null)
+            _promptTitleVisualBoundsOverlay.gameObject.SetActive(false);
+        if (_promptBannedVisualBoundsOverlay != null)
+            _promptBannedVisualBoundsOverlay.gameObject.SetActive(false);
+    }
+
+    void SetExistingDesignReferenceImagesVisible(bool visible)
+    {
+        if (_designOverlayRoot == null) return;
+
+        var selectedIndex = visible ? GetActiveDesignReferenceImageIndex() : -1;
+        var referenceIndex = 0;
+        for (var i = 0; i < _designOverlayRoot.childCount; i++)
+        {
+            var child = _designOverlayRoot.GetChild(i);
+            if (child == null || child.name == PromptCalibrationOverlayName) continue;
+            if (child.name.StartsWith("tempDesign", System.StringComparison.Ordinal))
+            {
+                child.gameObject.SetActive(referenceIndex == selectedIndex);
+                referenceIndex++;
+            }
+        }
+    }
+
+    int GetActiveDesignReferenceImageIndex()
+    {
+        var count = CountDesignReferenceImages();
+        if (count <= 0) return -1;
+
+        var index = _autoSelectDesignReferenceForCurrentState
+            ? GetDesignReferenceImageIndexForState(_currentState)
+            : _promptCalibrationReferenceImageIndex;
+
+        if (index < 0 || index >= count) return -1;
+        return index;
+    }
+
+    int GetDesignReferenceImageIndexForState(MainUIState state)
+    {
+        if (_stateDesignReferences != null)
+        {
+            foreach (var reference in _stateDesignReferences)
+            {
+                if (reference != null && reference.state == state)
+                    return reference.referenceImageIndex;
+            }
+        }
+
+        switch (state)
+        {
+            case MainUIState.Start:
+                return 0;
+            case MainUIState.Tutorial:
+                return 1;
+            case MainUIState.RoomId:
+                return 2;
+            case MainUIState.Waiting:
+                return 3;
+            case MainUIState.Gameplay:
+                return 4;
+            default:
+                return -1;
+        }
+    }
+
+    int CountDesignReferenceImages()
+    {
+        if (_designOverlayRoot == null)
+            _designOverlayRoot = FindChildRect(transform, DesignOverlayGroupName);
+        if (_designOverlayRoot == null) return 0;
+
+        var count = 0;
+        for (var i = 0; i < _designOverlayRoot.childCount; i++)
+        {
+            var child = _designOverlayRoot.GetChild(i);
+            if (child != null && child.name.StartsWith("tempDesign", System.StringComparison.Ordinal))
+                count++;
+        }
+
+        return count;
+    }
+
+    void UpdateTextVisualBoundsOverlay(TMP_Text text, RectTransform overlayRect, Color color)
+    {
+        if (text == null || overlayRect == null || _promptCalibrationOverlayRoot == null) return;
+
+        if (!TryGetTextVisualBoundsInOverlaySpace(text, _promptCalibrationOverlayRoot, out var center, out var size))
+        {
+            overlayRect.gameObject.SetActive(false);
+            return;
+        }
+
+        overlayRect.gameObject.SetActive(_showPromptCalibrationOverlay);
+        ConfigureRect(overlayRect, center, size, new Vector2(0.5f, 0.5f));
+        var image = overlayRect.GetComponent<Image>();
+        if (image != null)
+        {
+            image.color = color;
+            image.raycastTarget = false;
+        }
+    }
+
+    bool TryGetTextVisualBoundsInOverlaySpace(TMP_Text text, RectTransform overlayRoot, out Vector2 center, out Vector2 size)
+    {
+        center = Vector2.zero;
+        size = Vector2.zero;
+        if (text == null || overlayRoot == null) return false;
+
+        text.ForceMeshUpdate();
+        var bounds = text.textBounds;
+        if (bounds.size.x <= 0.01f || bounds.size.y <= 0.01f) return false;
+
+        var textTransform = text.rectTransform;
+        var localMin = bounds.min;
+        var localMax = bounds.max;
+        var corners = new[]
+        {
+            new Vector3(localMin.x, localMin.y, 0f),
+            new Vector3(localMin.x, localMax.y, 0f),
+            new Vector3(localMax.x, localMax.y, 0f),
+            new Vector3(localMax.x, localMin.y, 0f)
+        };
+
+        var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        for (var i = 0; i < corners.Length; i++)
+        {
+            var world = textTransform.TransformPoint(corners[i]);
+            var local = overlayRoot.InverseTransformPoint(world);
+            min = Vector2.Min(min, local);
+            max = Vector2.Max(max, local);
+        }
+
+        center = (min + max) * 0.5f;
+        size = max - min;
+        return size.x > 0.01f && size.y > 0.01f;
+    }
+
+    void ConfigureDesignOverlayRoot(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = Vector2.zero;
+        rect.localScale = Vector3.one;
+    }
+
+    void ConfigureDesignReferenceSpaceRect(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = new Vector2(1920f, 1080f);
+        rect.localScale = Vector3.one;
+    }
+
+    void ConfigureStretchRect(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = Vector2.zero;
+        rect.localScale = Vector3.one;
+    }
+
     void PreparePromptShowcaseStart()
     {
         EnsurePromptSharedView();
@@ -1461,8 +1885,7 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.alpha = 0f;
             _promptTitleText.fontSize = 184f;
             _promptTitleText.alignment = TextAlignmentOptions.Left;
-            _promptTitleText.rectTransform.anchoredPosition = GetPromptTitlePosition();
-            _promptTitleText.rectTransform.sizeDelta = new Vector2(1400f, 260f);
+            ConfigureRect(_promptTitleText.rectTransform, GetPromptTitlePosition(), new Vector2(1400f, 260f), new Vector2(0.5f, 0.5f));
             _promptTitleText.transform.SetAsLastSibling();
         }
         if (_promptBannedText != null)
@@ -1474,8 +1897,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.alpha = 0f;
             _promptBannedText.fontSize = 58f;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
-            _promptBannedText.rectTransform.anchoredPosition = GetPromptBannedTextPosition();
-            _promptBannedText.rectTransform.sizeDelta = new Vector2(1100f, 100f);
+            ConfigureRect(_promptBannedText.rectTransform, GetPromptBannedTextPosition(), new Vector2(1100f, 100f), new Vector2(0.5f, 0.5f));
             _promptBannedText.transform.SetAsLastSibling();
         }
 
@@ -1536,10 +1958,10 @@ public class MainUIController : MonoBehaviour
     string GetBannedLetterRevealText()
     {
         if (string.IsNullOrEmpty(_promptBannedLetters))
-            return "banned letters";
+            return "banned letter";
 
         var colorHex = ColorUtility.ToHtmlStringRGB(_promptBannedLetterColor);
-        var coloredLetters = $"<color=#{colorHex}>{_promptBannedLetters}</color>";
+        var coloredLetters = $"<size=150%><color=#{colorHex}>{_promptBannedLetters}</color></size>";
         return _promptBannedLetters.Length == 1
             ? $"banned letter \"{coloredLetters}\""
             : $"banned letters \"{coloredLetters}\"";
@@ -1835,29 +2257,36 @@ public class MainUIController : MonoBehaviour
     {
         if (_decorativeLines == null || _decorativeLines.Length < 3) return;
 
-        PrepareRoundResultStripeForReveal(_decorativeLines[0]?.rect, new Vector2(-900f, 470f));
-        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, new Vector2(-900f, 436f));
-        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, new Vector2(-900f, 402f));
+        PrepareRoundResultStripeForReveal(_decorativeLines[0]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(0));
+        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(1));
+        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(2));
 
         var stripeGroup = GetDecorativeLineStateGroup();
         if (stripeGroup != null)
         {
-            stripeGroup.alpha = 1f;
+            stripeGroup.alpha = 0f;
             stripeGroup.interactable = false;
             stripeGroup.blocksRaycasts = false;
         }
     }
 
-    void PrepareRoundResultStripeForReveal(RectTransform rect, Vector2 leftCenterPosition)
+    void SetRoundResultStripeGroupAlpha(float alpha)
+    {
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+            stripeGroup.alpha = alpha;
+    }
+
+    void PrepareRoundResultStripeForReveal(RectTransform rect, Vector2 leftCenterPosition, Color color)
     {
         if (rect == null) return;
 
-        ConfigureRect(rect, leftCenterPosition, new Vector2(0f, 20f), new Vector2(0f, 0.5f));
+        ConfigureRect(rect, leftCenterPosition, new Vector2(1800f, 20f), new Vector2(0.5f, 0.5f));
         rect.gameObject.SetActive(true);
         var graphic = rect.GetComponent<Graphic>();
         if (graphic != null)
         {
-            graphic.color = _gameplayLetterNeutralColor;
+            graphic.color = color;
             graphic.raycastTarget = false;
         }
     }
@@ -1867,17 +2296,17 @@ public class MainUIController : MonoBehaviour
         if (seq == null || _decorativeLines == null || _decorativeLines.Length < 3) return;
 
         var stripeSeq = DOTween.Sequence().SetId(this);
-        AddRoundResultStripeWidthTween(stripeSeq, _decorativeLines[0]?.rect);
-        AddRoundResultStripeWidthTween(stripeSeq, _decorativeLines[1]?.rect);
-        AddRoundResultStripeWidthTween(stripeSeq, _decorativeLines[2]?.rect);
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetRoundResultStripePosition(2));
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetRoundResultStripePosition(1));
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[0]?.rect, GetRoundResultStripePosition(0));
         seq.Append(stripeSeq);
     }
 
-    void AddRoundResultStripeWidthTween(Sequence stripeSeq, RectTransform rect)
+    void AddRoundResultStripeMoveTween(Sequence stripeSeq, RectTransform rect, Vector2 targetPosition)
     {
         if (stripeSeq == null || rect == null) return;
 
-        stripeSeq.Join(rect.DOSizeDelta(new Vector2(1800f, 20f), _roundResultStripeRevealDuration).SetEase(_ease));
+        stripeSeq.Append(rect.DOAnchorPos(targetPosition, _roundResultStripeRevealDuration).SetEase(_ease));
     }
 
     void AddRoundResultContentRevealTween(Sequence seq)
@@ -1965,9 +2394,9 @@ public class MainUIController : MonoBehaviour
     {
         if (_decorativeLines == null || _decorativeLines.Length < 3) return;
 
-        ConfigureRoundResultStripe(_decorativeLines[0]?.rect, new Vector2(0f, 470f));
-        ConfigureRoundResultStripe(_decorativeLines[1]?.rect, new Vector2(0f, 436f));
-        ConfigureRoundResultStripe(_decorativeLines[2]?.rect, new Vector2(0f, 402f));
+        ConfigureRoundResultStripe(_decorativeLines[0]?.rect, GetRoundResultStripePosition(0), GetRoundResultStripeColor(0));
+        ConfigureRoundResultStripe(_decorativeLines[1]?.rect, GetRoundResultStripePosition(1), GetRoundResultStripeColor(1));
+        ConfigureRoundResultStripe(_decorativeLines[2]?.rect, GetRoundResultStripePosition(2), GetRoundResultStripeColor(2));
 
         var stripeGroup = GetDecorativeLineStateGroup();
         if (stripeGroup != null)
@@ -1977,7 +2406,7 @@ public class MainUIController : MonoBehaviour
         }
     }
 
-    void ConfigureRoundResultStripe(RectTransform rect, Vector2 position)
+    void ConfigureRoundResultStripe(RectTransform rect, Vector2 position, Color color)
     {
         if (rect == null) return;
 
@@ -1986,9 +2415,16 @@ public class MainUIController : MonoBehaviour
         var graphic = rect.GetComponent<Graphic>();
         if (graphic != null)
         {
-            graphic.color = _gameplayLetterNeutralColor;
+            graphic.color = color;
             graphic.raycastTarget = false;
         }
+    }
+
+    Color GetRoundResultStripeColor(int index)
+    {
+        if (index == 0) return _roundResultBottomStripeColor;
+        if (index == 1) return _roundResultMiddleStripeColor;
+        return _roundResultTopStripeColor;
     }
 
     void RemoveDeprecatedRoundResultStripeCopies()
@@ -2169,10 +2605,57 @@ public class MainUIController : MonoBehaviour
         text.rectTransform.anchoredPosition = targetPosition - new Vector2(0f, _gameplaySlideOffset);
     }
 
-    Vector2 GetGameplayPromptPosition() => new Vector2(-250f, 330f);
-    Vector2 GetGameplayBannedLabelPosition() => new Vector2(-392f, 230f);
+    Vector2 GetGameplayPromptPosition() => new Vector2(-910f, 338f);
+    Vector2 GetGameplayPromptSize() => new Vector2(1720f, 210f);
+    float GetGameplayPromptFontSize() => 165f;
+    Vector2 GetGameplayBannedLabelPosition() => new Vector2(-896f, 201f);
+    Vector2 GetGameplayBannedLabelSize() => new Vector2(1000f, 76f);
+    float GetGameplayBannedLabelFontSize() => 52f;
     Vector2 GetGameplayInputFieldPosition() => new Vector2(0f, -420f);
     Vector2 GetGameplayInputFieldSize() => new Vector2(1800f, 120f);
+    Vector2 GetWaitingPanelStartPosition() => _waitingPanelStartAnchoredPos + new Vector2(0f, _waitingPanelYOffset);
+    void ApplyWaitingDecorativeLineLayoutImmediate()
+    {
+        if (_decorativeLines == null) return;
+
+        for (var i = 0; i < _decorativeLines.Length; i++)
+        {
+            var line = _decorativeLines[i];
+            if (line?.rect == null) continue;
+
+            line.rect.anchoredPosition = GetWaitingLineTargetPosition(line, i);
+            line.rect.sizeDelta = line.waitingSizeDelta;
+        }
+    }
+
+    Vector2 GetWaitingLineTargetPosition(LineTarget line, int index)
+    {
+        if (line == null) return Vector2.zero;
+
+        var lineHeight = Mathf.Max(1f, line.waitingSizeDelta.y);
+        var gap = GetWaitingLineGap();
+        var bottomLineIndex = _decorativeLines != null ? Mathf.Max(0, _decorativeLines.Length - 1) : 0;
+        var stepsAboveBottom = Mathf.Max(0, bottomLineIndex - index);
+        var panelPivotY = _waitingPanel != null ? _waitingPanel.pivot.y : 0f;
+        var panelTopY = GetWaitingPanelStartPosition().y + _waitingPanelTargetSize.y * (1f - panelPivotY);
+        var y = panelTopY + gap + lineHeight * 0.5f + stepsAboveBottom * (lineHeight + gap);
+        return new Vector2(line.waitingAnchoredPos.x, y);
+    }
+
+    float GetWaitingLineGap()
+    {
+        if (_decorativeLines == null || _decorativeLines.Length < 2)
+            return 14f;
+
+        var first = _decorativeLines[0];
+        var second = _decorativeLines[1];
+        if (first == null || second == null)
+            return 14f;
+
+        var lineHeight = Mathf.Max(1f, Mathf.Max(first.waitingSizeDelta.y, second.waitingSizeDelta.y));
+        var centerGap = Mathf.Abs(first.waitingAnchoredPos.y - second.waitingAnchoredPos.y);
+        return Mathf.Max(0f, centerGap - lineHeight);
+    }
     Vector2 GetGameplayP1LetterGroupPosition() => new Vector2(-760f, GetGameplayP1IconPosition().y);
     Vector2 GetGameplayP2LetterGroupPosition() => new Vector2(-760f, GetGameplayP2IconPosition().y);
     Vector2 GetRoundResultPromptTopLeftPosition() => new Vector2(105f, -185f);
@@ -2191,6 +2674,8 @@ public class MainUIController : MonoBehaviour
     Vector2 GetRoundResultP2ScoreTextLeftCenterPosition() => new Vector2(-122f, -295f);
     Vector2 GetRoundResultPanelPosition() => new Vector2(0f, -52f);
     Vector2 GetRoundResultPanelSize() => new Vector2(1800f, 856f);
+    Vector2 GetRoundResultStripePosition(int index) => new Vector2(0f, index == 0 ? 470f : index == 1 ? 436f : 402f);
+    Vector2 GetRoundResultStripeStartPosition() => new Vector2(0f, GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f - 10f);
 
     void SetSharedPromptVisibleForGameplay()
     {
@@ -2203,8 +2688,9 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.alignment = TextAlignmentOptions.Left;
             _promptTitleText.color = _promptInkColor;
             _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
-            _promptTitleText.fontSize = 150f;
-            _promptTitleText.rectTransform.sizeDelta = new Vector2(1300f, 190f);
+            _promptTitleText.fontSize = GetGameplayPromptFontSize();
+            SetCenterLeftAnchors(_promptTitleText.rectTransform);
+            _promptTitleText.rectTransform.sizeDelta = GetGameplayPromptSize();
             _promptTitleText.alpha = 1f;
             _promptTitleText.rectTransform.anchoredPosition = GetGameplayPromptPosition();
         }
@@ -2215,12 +2701,14 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.color = _promptInkColor;
             _promptBannedText.text = GetBannedLetterRevealText();
-            _promptBannedText.fontSize = 48f;
-            _promptBannedText.rectTransform.sizeDelta = new Vector2(1000f, 80f);
+            _promptBannedText.fontSize = GetGameplayBannedLabelFontSize();
+            SetCenterLeftAnchors(_promptBannedText.rectTransform);
+            _promptBannedText.rectTransform.sizeDelta = GetGameplayBannedLabelSize();
             _promptBannedText.alpha = 1f;
             _promptBannedText.rectTransform.anchoredPosition = GetGameplayBannedLabelPosition();
         }
 
+        RefreshPromptCalibrationOverlay();
         SetGameplayInputFieldVisible();
         HideDeprecatedGameplayPlayerLabelCopies();
     }
@@ -2396,7 +2884,7 @@ public class MainUIController : MonoBehaviour
         group.alpha = 1f;
         group.interactable = false;
         group.blocksRaycasts = false;
-        ConfigureRect(rect, anchoredPosition, new Vector2(100f, 100f), new Vector2(0.5f, 0.5f));
+        ConfigureRect(rect, anchoredPosition, new Vector2(120f, 120f), new Vector2(0.5f, 0.5f));
         ConfigurePlayerIconBoxForGameplay(rect);
         ConfigurePlayerIconIndicatorForGameplay(rect, showLocalIndicator);
         rect.SetAsLastSibling();
@@ -2439,12 +2927,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(-82f, 0f), new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -2468,12 +2956,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 19f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -2505,7 +2993,7 @@ public class MainUIController : MonoBehaviour
         if (idText != null)
         {
             idText.enableAutoSizing = false;
-            idText.fontSize = 51f;
+            idText.fontSize = Mathf.Max(51f, playerIconRoot.sizeDelta.y * 0.51f);
             idText.characterSpacing = 0f;
             idText.alignment = TextAlignmentOptions.Center;
             idText.margin = Vector4.zero;
@@ -2554,12 +3042,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(0f, -148f), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(0f, -132f), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, new Vector2(0f, -8f), new Vector2(27.0481f, 19.1138f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, new Vector2(0f, 4f), new Vector2(27.0481f, 16f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -2571,7 +3059,7 @@ public class MainUIController : MonoBehaviour
         if (youText != null)
         {
             youText.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(youText, new Vector2(1.9196f, -32f), new Vector2(71f, 48.8f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(youText, new Vector2(1.9196f, -28f), new Vector2(71f, 48.8f), new Vector2(0.5f, 0.5f));
         }
     }
 
@@ -2759,6 +3247,15 @@ public class MainUIController : MonoBehaviour
         rect.localScale = Vector3.one;
     }
 
+    void SetPivotKeepingVisualPosition(RectTransform rect, Vector2 pivot)
+    {
+        if (rect == null || rect.pivot == pivot) return;
+
+        var delta = pivot - rect.pivot;
+        rect.anchoredPosition += new Vector2(delta.x * rect.sizeDelta.x, delta.y * rect.sizeDelta.y);
+        rect.pivot = pivot;
+    }
+
     void SetTextAlpha(TMP_Text text, float alpha)
     {
         if (text == null) return;
@@ -2837,6 +3334,24 @@ public class MainUIController : MonoBehaviour
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(0f, 1f);
         rect.pivot = new Vector2(0f, 1f);
+    }
+
+    void SetCenterLeftAnchors(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0f, 0.5f);
+    }
+
+    void SetCenterLeftAnchorsKeepingVisualPosition(RectTransform rect)
+    {
+        if (rect == null) return;
+
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        SetPivotKeepingVisualPosition(rect, new Vector2(0f, 0.5f));
     }
 
     RectTransform FindChildRect(Transform parent, string childName)
@@ -3072,6 +3587,113 @@ public class MainUIController : MonoBehaviour
         return DOTween.To(() => le.preferredWidth, x => le.preferredWidth = x, target, _duration).SetEase(_ease);
     }
 
+    void AddCmykBarToTutorialTween(Sequence seq)
+    {
+        if (seq == null) return;
+
+        var phaseOne = GetCmykShapePhaseSeconds();
+        var phaseTwo = GetCmykHeightPhaseSeconds();
+        var currentSize = _cmykBar != null ? _cmykBar.sizeDelta : _barTutorialSize;
+        var rectangleSize = new Vector2(_barTutorialSize.x, Mathf.Max(1f, currentSize.y));
+        var tutorialBottomPosition = _barTutorialAnchoredPos - new Vector2(0f, _barTutorialSize.y * 0.5f);
+
+        var cmykSeq = DOTween.Sequence().SetId(this);
+        cmykSeq.Join(TweenSkew(_graphicM, 0f, phaseOne));
+        cmykSeq.Join(TweenSkew(_graphicY, 0f, phaseOne));
+        cmykSeq.Join(TweenSkew(_graphicC, 0f, phaseOne));
+        cmykSeq.Join(TweenSkew(_graphicK, 0f, phaseOne));
+        cmykSeq.Join(TweenPreferredWidth(_layoutM, _stripeNarrowWidth, phaseOne));
+        cmykSeq.Join(TweenPreferredWidth(_layoutY, _stripeNarrowWidth, phaseOne));
+        cmykSeq.Join(TweenPreferredWidth(_layoutC, _stripeNarrowWidth, phaseOne));
+        if (_cmykBar != null)
+        {
+            SetPivotKeepingVisualPosition(_cmykBar, new Vector2(0.5f, 0f));
+            cmykSeq.Join(_cmykBar.DOAnchorPos(tutorialBottomPosition, phaseOne).SetEase(_ease));
+            cmykSeq.Join(_cmykBar.DOSizeDelta(rectangleSize, phaseOne).SetEase(_ease));
+            cmykSeq.Append(_cmykBar.DOSizeDelta(_barTutorialSize, phaseTwo).SetEase(_ease));
+        }
+
+        seq.Join(cmykSeq);
+    }
+
+    void AddCmykBarToRoomIdTween(Sequence seq)
+    {
+        if (seq == null) return;
+
+        var phaseOne = GetCmykShapePhaseSeconds();
+        var phaseTwo = GetCmykHeightPhaseSeconds();
+        var currentSize = _cmykBar != null ? _cmykBar.sizeDelta : _barRoomIdSize;
+        var rectangleSize = new Vector2(_barRoomIdSize.x, Mathf.Max(1f, currentSize.y));
+
+        var cmykSeq = DOTween.Sequence().SetId(this);
+        cmykSeq.Join(TweenSkew(_graphicM, 0f, phaseOne));
+        cmykSeq.Join(TweenSkew(_graphicY, 0f, phaseOne));
+        cmykSeq.Join(TweenSkew(_graphicC, 0f, phaseOne));
+        cmykSeq.Join(TweenSkew(_graphicK, 0f, phaseOne));
+        cmykSeq.Join(TweenPreferredWidth(_layoutM, _roomIdMWidth, phaseOne));
+        cmykSeq.Join(TweenPreferredWidth(_layoutY, _roomIdYWidth, phaseOne));
+        cmykSeq.Join(TweenPreferredWidth(_layoutC, _roomIdCWidth, phaseOne));
+        if (_cmykBar != null)
+        {
+            SetPivotKeepingVisualPosition(_cmykBar, new Vector2(0.5f, 0.5f));
+            cmykSeq.Join(_cmykBar.DOAnchorPos(_barRoomIdAnchoredPos, phaseOne).SetEase(_ease));
+            cmykSeq.Join(_cmykBar.DOSizeDelta(rectangleSize, phaseOne).SetEase(_ease));
+            cmykSeq.Append(_cmykBar.DOSizeDelta(_barRoomIdSize, phaseTwo).SetEase(_ease));
+            cmykSeq.Join(TweenSkew(_graphicM, _roomIdSkew, phaseTwo));
+            cmykSeq.Join(TweenSkew(_graphicY, _roomIdSkew, phaseTwo));
+            cmykSeq.Join(TweenSkew(_graphicC, _roomIdSkew, phaseTwo));
+            cmykSeq.Join(TweenSkew(_graphicK, _roomIdSkew, phaseTwo));
+        }
+
+        seq.Join(cmykSeq);
+    }
+
+    void AddCmykBarFromTutorialToRoomIdTween(Sequence seq)
+    {
+        if (seq == null) return;
+
+        var phaseOne = GetCmykHeightPhaseSeconds();
+        var phaseTwo = GetCmykShapePhaseSeconds();
+        var collapsedSize = new Vector2(_barTutorialSize.x, Mathf.Max(1f, _barRoomIdSize.y));
+        var tutorialBottomPosition = _barTutorialAnchoredPos - new Vector2(0f, _barTutorialSize.y * 0.5f);
+
+        var cmykSeq = DOTween.Sequence().SetId(this);
+        if (_cmykBar != null)
+        {
+            SetPivotKeepingVisualPosition(_cmykBar, new Vector2(0.5f, 0f));
+            cmykSeq.Append(_cmykBar.DOAnchorPos(tutorialBottomPosition, phaseOne).SetEase(_ease));
+            cmykSeq.Join(_cmykBar.DOSizeDelta(collapsedSize, phaseOne).SetEase(_ease));
+            cmykSeq.AppendCallback(() => SetPivotKeepingVisualPosition(_cmykBar, new Vector2(0.5f, 0.5f)));
+            cmykSeq.Append(_cmykBar.DOAnchorPos(_barRoomIdAnchoredPos, phaseTwo).SetEase(_ease));
+            cmykSeq.Join(_cmykBar.DOSizeDelta(_barRoomIdSize, phaseTwo).SetEase(_ease));
+        }
+        cmykSeq.Join(TweenSkew(_graphicM, _roomIdSkew, phaseTwo));
+        cmykSeq.Join(TweenSkew(_graphicY, _roomIdSkew, phaseTwo));
+        cmykSeq.Join(TweenSkew(_graphicC, _roomIdSkew, phaseTwo));
+        cmykSeq.Join(TweenSkew(_graphicK, _roomIdSkew, phaseTwo));
+        cmykSeq.Join(TweenPreferredWidth(_layoutM, _roomIdMWidth, phaseTwo));
+        cmykSeq.Join(TweenPreferredWidth(_layoutY, _roomIdYWidth, phaseTwo));
+        cmykSeq.Join(TweenPreferredWidth(_layoutC, _roomIdCWidth, phaseTwo));
+
+        seq.Join(cmykSeq);
+    }
+
+    float GetRoomIdBarTransitionSeconds() => GetCmykShapePhaseSeconds() + GetCmykHeightPhaseSeconds();
+    float GetCmykShapePhaseSeconds() => Mathf.Max(0.01f, _duration * Mathf.Clamp01(_cmykShapePhaseRatio));
+    float GetCmykHeightPhaseSeconds() => Mathf.Max(0.01f, _duration * (1f - Mathf.Clamp01(_cmykShapePhaseRatio)));
+
+    Tween TweenSkew(ParallelogramGraphic g, float target, float duration)
+    {
+        if (g == null) return null;
+        return DOTween.To(() => g.Skew, x => g.Skew = x, target, duration).SetEase(_ease);
+    }
+
+    Tween TweenPreferredWidth(LayoutElement le, float target, float duration)
+    {
+        if (le == null) return null;
+        return DOTween.To(() => le.preferredWidth, x => le.preferredWidth = x, target, duration).SetEase(_ease);
+    }
+
     void AddRectTweens(Sequence seq, RectTransformTweenTarget[] targets)
     {
         if (seq == null || targets == null) return;
@@ -3193,6 +3815,7 @@ public class MainUIController : MonoBehaviour
         }
 
         _currentState = to;
+        RefreshPromptCalibrationOverlay();
     }
 
     void SetStateVisibilityImmediate(MainUIState state)
@@ -3204,6 +3827,9 @@ public class MainUIController : MonoBehaviour
         }
 
         _currentState = state;
+        if (state == MainUIState.Waiting)
+            ApplyWaitingDecorativeLineLayoutImmediate();
+        RefreshPromptCalibrationOverlay();
     }
 
     void EnsureGeneratedStateView(MainUIState state)

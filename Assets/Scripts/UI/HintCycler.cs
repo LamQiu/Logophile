@@ -22,6 +22,13 @@ public class HintCycler : MonoBehaviour
 
     public void StartCycling()
     {
+        if (_typewriter == null)
+        {
+            if (_text == null) _text = GetComponent<TMP_Text>();
+            if (_text != null) _text.text = PickRandomHint();
+            return;
+        }
+
         StopCycling();
         _running = StartCoroutine(CycleRoutine());
     }
@@ -30,6 +37,12 @@ public class HintCycler : MonoBehaviour
     {
         if (_running != null) StopCoroutine(_running);
         _running = null;
+        if (_typewriter != null) _typewriter.Stop();
+    }
+
+    void OnDisable()
+    {
+        StopCycling();
     }
 
     IEnumerator CycleRoutine()
