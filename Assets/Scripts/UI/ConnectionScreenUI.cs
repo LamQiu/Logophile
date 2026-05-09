@@ -20,6 +20,10 @@ namespace UI
         {
             CreateSessionCodeInputField.onSubmit.AddListener(OnCreateSubmit);
             QuickJoinWidgetInputField.onSubmit.AddListener(OnJoinSubmit);
+            if (CreateSessionCodeInputField != null && QuickJoinWidgetInputField != null &&
+                ReferenceEquals(CreateSessionCodeInputField, QuickJoinWidgetInputField))
+                Debug.LogWarning(
+                    "ConnectionScreenUI: CreateSessionCodeInputField and QuickJoinWidgetInputField point to the same TMP_InputField; Enter will run BOTH create and join.");
         }
 
         private void OnDisable()
@@ -30,7 +34,11 @@ namespace UI
 
         private void OnCreateSubmit(string _) { var __ = CreateSessionAsync(); }
 
+        public void TriggerCreateSession() { _ = CreateSessionAsync(); }
+
         private void OnJoinSubmit(string _) { var __ = JoinSessionAsync(QuickJoinWidgetInputField.text); }
+
+        public void TriggerJoinSession(string roomWord) { _ = JoinSessionAsync(roomWord); }
 
         private async Task CreateSessionAsync()
         {
@@ -43,17 +51,25 @@ namespace UI
                     .WithPlayerName();
                 var session = await MultiplayerService.Instance.CreateSessionAsync(options);
                 Debug.Log($"[Room Created] Word: {session.Name}, Code: {session.Code}");
-                UIManager.Instance.EnterWaitingScreen(session.Name, session.Name);
+                UIManager.Instance.OnCreateSessionSucceeded(session.Name, session.Name);
             }
-            catch (SessionException e)
+            catch (System.Exception e)
             {
-                Debug.LogError($"[Create Session Failed] {e.Message}");
+                if (e is SessionException se)
+                    Debug.LogError($"[Create Session Failed] {se.Message}");
+                else
+                    Debug.LogError($"[Create Session Failed] {e.Message}");
+                UIManager.Instance?.OnMainUiCreateSessionFailed();
             }
         }
 
         // 最多尝试 10 次，找到一个当前没有对应 session 的词
         private async Task<string> PickUniqueRoomWordAsync()
         {
+            var testMgr = GameplayTestManager.Instance;
+            if (testMgr != null && testMgr.UseSetRoomWord && !string.IsNullOrWhiteSpace(testMgr.PresetRoomWord))
+                return testMgr.PresetRoomWord.ToUpperInvariant();
+
             for (int i = 0; i < 10; i++)
             {
                 var candidate = RoomWordPicker.GetRandomWord();
@@ -76,7 +92,9 @@ namespace UI
         {
             if (string.IsNullOrWhiteSpace(word)) return;
             var wordUpper = word.Trim().ToUpper();
-            JoinErrorPopup.SetActive(false);
+            JoinErrorPopup?.SetActive(false);
+            if (UIManager.Instance != null)
+                UIManager.Instance.TransitionMainUiToLoadingIfPresent();
             var joinOptions = new JoinSessionOptions { Type = "default-session" }.WithPlayerName();
             try
             {
@@ -93,18 +111,24 @@ namespace UI
 
                 if (queryResult.Sessions == null || queryResult.Sessions.Count == 0)
                 {
-                    JoinErrorPopup.SetActive(true);
+                    JoinErrorPopup?.SetActive(true);
+                    UIManager.Instance?.OnMainUiJoinSessionFailed();
                     return;
                 }
 
                 var sessionId = queryResult.Sessions[0].Id;
                 var session = await MultiplayerService.Instance.JoinSessionByIdAsync(sessionId, joinOptions);
-                UIManager.Instance.EnterWaitingScreen(session.Name, session.Name);
+                if (UIManager.Instance != null)
+                    UIManager.Instance.OnCreateSessionSucceeded(session.Name, session.Name);
             }
-            catch (SessionException e)
+            catch (System.Exception e)
             {
-                Debug.LogError($"[Join Failed] {e.Message}");
-                JoinErrorPopup.SetActive(true);
+                if (e is SessionException se)
+                    Debug.LogError($"[Join Failed] {se.Message}");
+                else
+                    Debug.LogError($"[Join Failed] {e.Message}");
+                JoinErrorPopup?.SetActive(true);
+                UIManager.Instance?.OnMainUiJoinSessionFailed();
             }
         }
 

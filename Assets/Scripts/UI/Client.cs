@@ -75,10 +75,10 @@ public class Client : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer)
-        {
+        // Every peer needs the local PlayerManager map (e.g. MainUI resolution HP from GetHost/GetClient).
+        // Server-only registration left non-host clients with an empty Players dictionary.
+        if (PlayerManager.Instance != null)
             PlayerManager.Instance.RegisterPlayer(OwnerClientId, this);
-        }
 
         if (IsOwner)
         {
@@ -103,6 +103,12 @@ public class Client : NetworkBehaviour
         }
     }
 
+    public override void OnNetworkDespawn()
+    {
+        if (PlayerManager.Instance != null)
+            PlayerManager.Instance.UnregisterPlayer(OwnerClientId);
+    }
+
     #endregion
 
     #region ===== UI Updates =====
@@ -120,10 +126,23 @@ public class Client : NetworkBehaviour
         UIManager.Instance.UpdateCurrentPrompt(value.ToString());
     }
 
-    private void ClearCurrentAnswer()
+    private void ClearCurrentAnswer(bool refocusSharedInputField = true)
     {
         m_answer = "";
-        UIManager.Instance.UpdateAnswerInputField("");
+        if (IsOwner)
+        {
+            LetterCount.Value = 0;
+            UpdateServerAnswerServerRpc("");
+        }
+
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.UpdateAnswerInputField("");
+            UIManager.Instance.SyncMainUiGameplayLetterRowsAfterLocalAnswerCleared();
+            UIManager.Instance.UpdateAnswerInputFieldInteractability(true);
+            if (refocusSharedInputField)
+                UIManager.Instance.FocusAnswerInputFieldNextFrame();
+        }
     }
 
     #endregion
@@ -216,7 +235,7 @@ public class Client : NetworkBehaviour
     public void OnEndResolutionPhase()
     {
         UIManager.Instance.UpdateAnswerInputFieldInteractability(true);
-        ClearCurrentAnswer();
+        ClearCurrentAnswer(refocusSharedInputField: false);
     }
 
     [Rpc(SendTo.Server)]
@@ -271,13 +290,61 @@ public class Client : NetworkBehaviour
 
     #region ===== Input Handling =====
 
-    private void Start()
+    bool _gameplayInputRegistered;
+
+    /// <summary>
+    /// Called when the game has actually entered the gameplay screen (hook this up later).
+    /// </summary>
+    public void OnEnteredGameplayScreen()
     {
-        if (IsOwner)
+        if (!IsOwner) return;
+        if (_gameplayInputRegistered) return;
+
+        // (Intentionally lightweight; UI can exist before gameplay starts.)
+        if (UIManager.Instance != null)
         {
             UIManager.Instance.AddListenerToAnswerInputField(OnLocalInputFieldChanged);
-            _wordChecker = new WordChecker();
+            UIManager.Instance.AddSubmitListenerToAnswerInputField(OnAnswerInputSubmit);
         }
+
+        _wordChecker ??= new WordChecker();
+        _gameplayInputRegistered = true;
+    }
+
+    /// <summary>
+    /// Clears shared input listeners so a later <see cref="OnEnteredGameplayScreen"/> can attach again (e.g. next round after MainUI Loading → PromptShowcase → Gameplay).
+    /// </summary>
+    public void ResetGameplayAnswerListenersForNewRound()
+    {
+        if (!IsOwner) return;
+        if (!_gameplayInputRegistered) return;
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.RemoveListenerFromAnswerInputField(OnLocalInputFieldChanged);
+            UIManager.Instance.RemoveSubmitListenerFromAnswerInputField(OnAnswerInputSubmit);
+        }
+
+        _gameplayInputRegistered = false;
+    }
+
+    void OnAnswerInputSubmit(string submittedLine)
+    {
+        if (_roundManager != null && _roundManager.IsResolutionPhase.Value)
+            return;
+        if (m_answerCheckedValid)
+            return;
+
+        if (!TrySubmitAnswer(submittedLine))
+            ClearCurrentAnswer();
+
+        UIManager.Instance?.UpdateGameScreenHintText(HintText);
+    }
+
+    private void Start()
+    {
+        // NOTE: gameplay input is registered later via OnEnteredGameplayScreen().
+        if (IsOwner)
+            _wordChecker ??= new WordChecker();
     }
 
     private void Update()
@@ -328,18 +395,57 @@ public class Client : NetworkBehaviour
 
     public override void OnDestroy()
     {
-        _roundManager.RoundTimeRemainingInSeconds.OnValueChanged -= OnTimeRemainingChanged;
+        if (_roundManager != null)
+            _roundManager.RoundTimeRemainingInSeconds.OnValueChanged -= OnTimeRemainingChanged;
+
+        if (IsOwner && _gameplayInputRegistered && UIManager.Instance != null)
+        {
+            UIManager.Instance.RemoveListenerFromAnswerInputField(OnLocalInputFieldChanged);
+            UIManager.Instance.RemoveSubmitListenerFromAnswerInputField(OnAnswerInputSubmit);
+            _gameplayInputRegistered = false;
+        }
     }
 
     #endregion
 
     #region ===== Word Checking & Submitting =====
 
-    public bool TrySubmitAnswer()
+    /// <summary>
+    /// TMP may clear the input before <see cref="OnAnswerInputSubmit"/> runs; merge submit line, field text, and cached <see cref="m_answer"/> so validation hints keep the typed word.
+    /// </summary>
+    string ResolveAnswerForSubmitAttempt(string tmpSubmitLine, string cachedAnswer)
     {
-        if (m_answer == null) return false;
-        
-        string answer = m_answer;
+        string TrimRemove(string s)
+        {
+            if (UIManager.Instance == null) return (s ?? "").Trim();
+            return UIManager.Instance.RemoveColorTags(s ?? "").Trim();
+        }
+
+        var fromSubmit = TrimRemove(tmpSubmitLine);
+        if (!string.IsNullOrEmpty(fromSubmit))
+            return fromSubmit;
+
+        if (UIManager.Instance != null)
+        {
+            var field = UIManager.Instance.AnswerInputField;
+            if (field != null)
+            {
+                var fromField = TrimRemove(field.text);
+                if (!string.IsNullOrEmpty(fromField))
+                    return fromField;
+            }
+        }
+
+        return TrimRemove(cachedAnswer);
+    }
+
+    public bool TrySubmitAnswer(string tmpSubmitLine = null)
+    {
+        var answer = ResolveAnswerForSubmitAttempt(tmpSubmitLine, m_answer);
+        m_answer = answer;
+
+        if (string.IsNullOrEmpty(answer))
+            return false;
         bool isAnswerValidInDictionary = _wordChecker.CheckWordDictionaryValidity(answer);
         if (!isAnswerValidInDictionary)
         {

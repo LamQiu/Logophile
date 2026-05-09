@@ -36,14 +36,17 @@ public class RoundManager : NetworkBehaviour
     private bool _started;
     private bool _ended;
     private bool _promptGenerated;
+    private bool _roundTimerStarted;
+    private readonly HashSet<ulong> _gameplayUiEnteredClients = new HashSet<ulong>();
+    bool _startedFromLobbyReadyFlow;
+    bool _useMainUiLobbyFlow;
+    readonly HashSet<ulong> _promptShowcaseFinishedClients = new HashSet<ulong>();
     private bool _startResolute;
 
     private readonly List<ulong> m_submittedAnswerClients = new List<ulong>();
     private readonly List<ulong> m_confirmedResolutionClients = new List<ulong>();
 
     private bool m_isGameEnd = false;
-
-    private const string k_invalidAnswerResolutionScreenText = "[ unidentified answer ]";
 
     private void Start()
     {
@@ -90,6 +93,11 @@ public class RoundManager : NetworkBehaviour
         _started = false;
         _ended = false;
         _promptGenerated = false;
+        _roundTimerStarted = false;
+        _gameplayUiEnteredClients.Clear();
+        _startedFromLobbyReadyFlow = false;
+        _useMainUiLobbyFlow = false;
+        _promptShowcaseFinishedClients.Clear();
         _startResolute = false;
         m_bannedLettersText = "";
         UIManager.Instance.MarkBannedLetters("");
@@ -154,7 +162,8 @@ public class RoundManager : NetworkBehaviour
         if (!_started) return;
 
         float roundTickScale = AnyPlayerSubmittedThisRound.Value ? RoundTimeSpeedMultiplierAfterAnySubmit : 1f;
-        m_localRoundTimeRemainingInSeconds -= Time.deltaTime * roundTickScale;
+        if (_roundTimerStarted)
+            m_localRoundTimeRemainingInSeconds -= Time.deltaTime * roundTickScale;
 
         if (!IsServer) return;
 
@@ -163,11 +172,14 @@ public class RoundManager : NetworkBehaviour
             GeneratePrompt();
             Debug.Log("Prompt generated");
             _promptGenerated = true;
+            _roundTimerStarted = false;
+            _gameplayUiEnteredClients.Clear();
         }
 
-        RoundTimeRemainingInSeconds.Value -= Time.deltaTime * roundTickScale;
+        if (_roundTimerStarted)
+            RoundTimeRemainingInSeconds.Value -= Time.deltaTime * roundTickScale;
 
-        if (RoundTimeRemainingInSeconds.Value < 0)
+        if (_roundTimerStarted && RoundTimeRemainingInSeconds.Value < 0)
         {
             OnRoundTimeOutClientRpc();
             EnterResolutionPhase();
@@ -224,19 +236,6 @@ public class RoundManager : NetworkBehaviour
         m_submittedAnswerClients.Clear();
         IsResolutionPhase.Value = true;
         _startResolute = true;
-
-        string hostAnswer = "";
-        string clientAnswer = "";
-        if (FindAnyObjectByType<PlayerManager>() is PlayerManager pm)
-        {
-            Client host = pm.GetHost();
-            Client client = pm.GetClient(1);
-
-            hostAnswer = String.IsNullOrEmpty(host.Answer) ? "" :
-                host.AnswerCheckedValid.Value ? host.Answer : k_invalidAnswerResolutionScreenText;
-            clientAnswer = String.IsNullOrEmpty(client.Answer) ? "" :
-                client.AnswerCheckedValid.Value ? client.Answer : k_invalidAnswerResolutionScreenText;
-        }
     }
 
     private IEnumerator DelayResolve()
@@ -251,19 +250,24 @@ public class RoundManager : NetworkBehaviour
         //string text = "";
         string hostAnswer = "";
         string clientAnswer = "";
+        var hostHpAfter = 0;
+        var clientHpAfter = 0;
+        var hostAnswerLetterEligible = false;
+        var clientAnswerLetterEligible = false;
 
         if (FindAnyObjectByType<PlayerManager>() is PlayerManager pm)
         {
             Client host = pm.GetHost();
             Client client = pm.GetClient(1);
 
-            hostAnswer = String.IsNullOrEmpty(host.Answer) ? "" :
-                host.AnswerCheckedValid.Value ? host.Answer : k_invalidAnswerResolutionScreenText;
-            clientAnswer = String.IsNullOrEmpty(client.Answer) ? "" :
-                client.AnswerCheckedValid.Value ? client.Answer : k_invalidAnswerResolutionScreenText;
+            hostAnswer = String.IsNullOrEmpty(host.Answer) ? "" : host.Answer;
+            clientAnswer = String.IsNullOrEmpty(client.Answer) ? "" : client.Answer;
 
             int hostScore = host.AnswerCheckedValid.Value ? host.LetterCount.Value : 0;
             int clientScore = client.AnswerCheckedValid.Value ? client.LetterCount.Value : 0;
+
+            hostAnswerLetterEligible = host != null && host.AnswerCheckedValid.Value;
+            clientAnswerLetterEligible = client != null && client.AnswerCheckedValid.Value;
 
             int difference = hostScore - clientScore;
 
@@ -280,6 +284,9 @@ public class RoundManager : NetworkBehaviour
             //client.CurrentHp.Value += clientScore;
 
             StartCoroutine(DelayCheckWinStateNUpdateScoreUI(host, client));
+
+            hostHpAfter = host != null ? host.CurrentHp.Value : 0;
+            clientHpAfter = client != null ? client.CurrentHp.Value : 0;
         }
 
         // Ban Letter
@@ -289,7 +296,7 @@ public class RoundManager : NetworkBehaviour
                 BanLetter();
         }
 
-        EnterResolutionPhaseClientRpc(hostAnswer, clientAnswer);
+        EnterResolutionPhaseClientRpc(hostAnswer, clientAnswer, hostHpAfter, clientHpAfter, hostAnswerLetterEligible, clientAnswerLetterEligible);
     }
 
     private void EndResolutionPhase()
@@ -326,7 +333,9 @@ public class RoundManager : NetworkBehaviour
         {
             _started = true;
 
-            if (IsServer)
+            // In the new lobby-ready flow we start the match and generate prompt manually.
+            // Do NOT auto-enter next round here, or it will interrupt the PromptShowcase animation.
+            if (IsServer && !_startedFromLobbyReadyFlow)
                 StartCoroutine(DelayEnterNextRound());
 
             return;
@@ -495,6 +504,73 @@ public class RoundManager : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Server-only: marks the match started, generates the first prompt, but does NOT start the round timer.
+    /// Round timer begins when both clients notify they've entered Gameplay UI (see <see cref="NotifyGameplayUiEnteredServerRpc"/>).
+    /// </summary>
+    public void BeginMatchFromLobbyServer()
+    {
+        if (!IsServer) return;
+
+        _startedFromLobbyReadyFlow = true;
+        _useMainUiLobbyFlow = true;
+        _promptShowcaseFinishedClients.Clear();
+        _started = true;
+        _ended = false;
+        m_isGameEnd = false;
+        IsResolutionPhase.Value = false;
+        AnyPlayerSubmittedThisRound.Value = false;
+
+        _promptGenerated = false;
+        _roundTimerStarted = false;
+        _gameplayUiEnteredClients.Clear();
+        m_submittedAnswerClients.Clear();
+        m_confirmedResolutionClients.Clear();
+
+        RoundTimeRemainingInSeconds.Value = RoundTimeLimitInSeconds;
+        ResolutionTimeRemainingInSeconds.Value = ResolutionTimeLimitInSeconds;
+
+        GeneratePrompt();
+        _promptGenerated = true;
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void NotifyPromptShowcaseFinishedServerRpc(ulong clientId)
+    {
+        if (!IsServer) return;
+        if (!_started) return;
+        if (!_useMainUiLobbyFlow) return;
+
+        _promptShowcaseFinishedClients.Add(clientId);
+        if (_promptShowcaseFinishedClients.Count >= 2)
+        {
+            _promptShowcaseFinishedClients.Clear();
+            EnterNextRound();
+        }
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void NotifyGameplayUiEnteredServerRpc(ulong clientId)
+    {
+        if (!IsServer) return;
+        if (!_started) return;
+        if (!_promptGenerated) return;
+        if (_roundTimerStarted) return;
+
+        _gameplayUiEnteredClients.Add(clientId);
+        if (_gameplayUiEnteredClients.Count >= 2)
+        {
+            _roundTimerStarted = true;
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    public void UpdateMainUiPromptClientRpc(string promptText, string bannedLetters)
+    {
+        if (UIManager.Instance != null)
+            UIManager.Instance.SetMainUiPrompt(promptText, bannedLetters);
+    }
+
     private const float k_checkWinStateDelayInSeconds = 0.1f;
 
     IEnumerator DelayCheckWinStateNUpdateScoreUI(Client host, Client client)
@@ -525,7 +601,7 @@ public class RoundManager : NetworkBehaviour
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void EnterResolutionPhaseClientRpc(string hostAnswer, string clientAnswer)
+    private void EnterResolutionPhaseClientRpc(string hostAnswer, string clientAnswer, int hostHpAfter, int clientHpAfter, bool hostAnswerLetterEligible, bool clientAnswerLetterEligible)
     {
         //ThemeMusicManager.Instance.PlayScoringTheme();
         AudioManager.Instance.PlayWaitingMusic();
@@ -538,10 +614,7 @@ public class RoundManager : NetworkBehaviour
             }
         }
 
-        UIManager.Instance.EnterResolutionScreen();
-        UIManager.Instance.UpdateResolutionPressSpaceHintText("press \"space\" to continue ");
-        UIManager.Instance.UpdateP1ResolutionScreenAnswerText(hostAnswer);
-        UIManager.Instance.UpdateP2ResolutionScreenAnswerText(clientAnswer);
+        UIManager.Instance.EnterResolutionPhaseFromRound(hostAnswer, clientAnswer, hostHpAfter, clientHpAfter, hostAnswerLetterEligible, clientAnswerLetterEligible);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -549,13 +622,16 @@ public class RoundManager : NetworkBehaviour
     {
         foreach (var c in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
             c.OnEndResolutionPhase();
+
+        if (UIManager.Instance != null && UIManager.Instance.UsesMainUiGameplayFlow)
+            UIManager.Instance.BeginMainUiNextRoundAfterResolution();
     }
 
     [Rpc(SendTo.ClientsAndHost)]
     private void EnterNextRoundClientRpc()
     {
         //ThemeMusicManager.Instance.PlayTypingTheme();
-        AudioManager.Instance.PlayTypingMusic();
+        // Typing music starts when gameplay UI is actually shown (UIManager / MainUIController), not here.
         m_localRoundTimeRemainingInSeconds = RoundTimeLimitInSeconds;
         m_localResolutionTimeRemainingInSeconds = ResolutionTimeLimitInSeconds;
 
@@ -567,6 +643,9 @@ public class RoundManager : NetworkBehaviour
             }
         }
 
+        if (UIManager.Instance != null && UIManager.Instance.UsesMainUiGameplayFlow)
+            return;
+
         UIManager.Instance.EnterGameScreen();
         UIManager.Instance.UpdateAnswerInputFieldInteractability(true);
     }
@@ -574,23 +653,7 @@ public class RoundManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void EndGameClientRpc(string playerID)
     {
-        UIManager.Instance.EnterWinScreen();
-        
-        string winText = "";
-        if (playerID == this.NetworkManager.LocalClientId.ToString())
-        {
-            winText = "you win";
-        }
-        else if (playerID == "both")
-        {
-            winText = "both win";
-        }
-        else
-        {
-            winText = "opponent wins";
-        }
-        
-        UIManager.Instance.UpdateWinText(winText);
+        UIManager.Instance.EnterWinScreenOrMainUiGameEnd(playerID);
         //ThemeMusicManager.Instance.PlayScoringTheme();
         AudioManager.Instance.PlayWaitingMusic();
     }

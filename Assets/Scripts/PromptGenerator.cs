@@ -10,6 +10,10 @@ using UIManager = UI.UIManager;
 public class PromptGenerator : NetworkBehaviour
 {
     public bool randomize;
+
+    [Tooltip("When enabled, randomized prompt types never pick Entry (only StartWith / Contains / EndWith).")]
+    [SerializeField] bool _excludeEntryPromptType;
+
     private PromptType m_lastPromptType = PromptType.None;
     [SerializeField] private Prompt[] prompts;
 
@@ -64,6 +68,15 @@ public class PromptGenerator : NetworkBehaviour
 
         CurrentPrompt.Value = randomPrompt;
         usedPrompts.Add(randomPrompt);
+
+        // Push prompt text to MainUI atomically with CurrentPrompt update.
+        // RoundManager owns the "authoritative round flow" and broadcasts to all clients.
+        var rm = FindAnyObjectByType<RoundManager>();
+        if (rm != null)
+        {
+            var bannedLetters = UIManager.Instance != null ? (UIManager.Instance.BannedLetters ?? "") : "";
+            rm.UpdateMainUiPromptClientRpc(randomPrompt.ToString(), bannedLetters);
+        }
     }
 
     PromptType RandomTypeExceptNone()
@@ -72,7 +85,7 @@ public class PromptGenerator : NetworkBehaviour
             .Where(t => t != PromptType.None)
             .ToList();
 
-        if (_entryPrompts.Count == 0)
+        if (_excludeEntryPromptType || _entryPrompts.Count == 0)
             all.Remove(PromptType.Entry);
 
         all.Remove(m_lastPromptType);
@@ -82,8 +95,15 @@ public class PromptGenerator : NetworkBehaviour
             all = System.Enum.GetValues(typeof(PromptType)).Cast<PromptType>()
                 .Where(t => t != PromptType.None)
                 .ToList();
-            if (_entryPrompts.Count == 0)
+            if (_excludeEntryPromptType || _entryPrompts.Count == 0)
                 all.Remove(PromptType.Entry);
+        }
+
+        if (all.Count == 0)
+        {
+            Debug.LogWarning("PromptGenerator.RandomTypeExceptNone: no PromptType left after filters; using StartWith.");
+            m_lastPromptType = PromptType.StartWith;
+            return PromptType.StartWith;
         }
 
         var result = all[Random.Range(0, all.Count)];

@@ -32,7 +32,7 @@ public class PlayerManager : NetworkBehaviour
     void OnClientDisconnected(ulong clientId)
     {
         Debug.Log($"Client {clientId} disconnected.");
-        Players.Remove(clientId);
+        UnregisterPlayer(clientId);
     }
 
     public void RegisterPlayer(ulong clientId, Client clientObj)
@@ -41,17 +41,12 @@ public class PlayerManager : NetworkBehaviour
         var isHost = clientId == 0;
         clientObj.name = isHost ? "Host" : $"Client {clientId}";
 
-        // Start game if there's two players
-        if (Players.Count >= s_GamePlayerCount)
-        {
-            var gm = FindAnyObjectByType<GameManager>();
-            if (gm != null)
-            {
-                gm.StartGameServerRpc();
-            }
-        }
-        
         Debug.Log($"Players Count: {Players.Count}");
+    }
+
+    public void UnregisterPlayer(ulong clientId)
+    {
+        Players.Remove(clientId);
     }
     public Client GetHost()
     {

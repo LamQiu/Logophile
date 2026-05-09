@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using DG.Tweening;
 using TMPro;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.Serialization;
@@ -138,13 +139,12 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _duration = 0.8f;
     [SerializeField] Ease _ease = Ease.InOutQuad;
 
-    [Header("Debug Navigation")]
-    [SerializeField] bool _enableDebugNextStateKey = true;
-    [SerializeField] KeyCode _debugNextStateKey = KeyCode.Y;
-
     [Header("State Visibility")]
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
+
+    /// <summary>Lobby / flow state for the single MainUI canvas (e.g. <see cref="UIManager"/> gating main-menu commands).</summary>
+    public MainUIState CurrentState => _currentState;
     [SerializeField, HideInInspector] int _roundResultLayoutVersion;
     [SerializeField] float _fadeOutDuration = 0.4f;
 
@@ -155,6 +155,8 @@ public class MainUIController : MonoBehaviour
 
     [Header("Tutorial Transition - Input Field")]
     [SerializeField] TMP_InputField _inputField;
+    /// <summary>Same field used for room code flow and gameplay; wire <see cref="UI.UIManager"/> here when using Main UI for gameplay.</summary>
+    public TMP_InputField SharedAnswerInputField => _inputField;
     [SerializeField] RectTransform _inputFieldRect;
     [SerializeField] CanvasGroup _inputFieldContentGroup;
     [SerializeField] float _inputFieldTutorialHeight = 12f;
@@ -242,6 +244,30 @@ public class MainUIController : MonoBehaviour
     [SerializeField] string _promptMaskText = "start with";
     [SerializeField] string _promptMaskBannedTextValue = "banned letter";
     [SerializeField] string _promptBannedLetters = "i";
+    bool _awaitingPromptFromServerWhileLoading;
+    bool _promptReceivedFromServer;
+    bool _promptShowcaseTransitionStarted;
+    [SerializeField] float _minLoadingHoldSecondsBeforePromptShowcase = 0.15f;
+    float _loadingHoldStartUnscaledTime = -1f;
+    Coroutine _deferredPromptShowcaseCoroutine;
+    bool _promptShowcaseFinishedNotified;
+
+    [Tooltip("Minimum time on the Loading screen after resolution before Round Result (mirrors prompt loading hold).")]
+    [SerializeField] float _minLoadingHoldSecondsBeforeRoundResult = 0.15f;
+    const float k_resolutionHpSyncTimeoutSeconds = 5f;
+    bool _awaitingResolutionScoresWhileLoading;
+    string _pendingResolutionHostAnswer;
+    string _pendingResolutionClientAnswer;
+    int _pendingResolutionHostHpTarget;
+    int _pendingResolutionClientHpTarget;
+    bool _pendingResolutionHostAnswerLetterEligible;
+    bool _pendingResolutionClientAnswerLetterEligible;
+    Coroutine _deferredResolutionRoundResultCoroutine;
+    [Header("Debug")]
+    [SerializeField] bool _debugSharedCommandInput;
+    [SerializeField] bool _debugPromptFlow;
+    [Tooltip("Logs shared answer TMP input CanvasGroups (shell + Text Area), parent-chain CanvasGroup alphas, and visibility formula when entering Gameplay / configuring input. Enable on MainUI prefab instance while reproducing invisible input.")]
+    [SerializeField] bool _debugGameplaySharedInputVisibility;
     [SerializeField] Color _promptPaperColor = new Color(1f, 0.9882353f, 0.96862745f, 1f);
     [SerializeField] Color _promptInkColor = new Color(0.14509805f, 0.14509805f, 0.14509805f, 1f);
     [SerializeField] Color _promptMaskTitleColor = new Color(0.93333334f, 0.91764706f, 0.89411765f, 1f);
@@ -265,6 +291,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] string _gameplayInputPlaceholder = "";
     [SerializeField] TMP_Text _gameplayP1Text;
     [SerializeField] TMP_Text _gameplayP2Text;
+    [SerializeField] private TMP_Text _gameplayHintText;
     [SerializeField] Image _gameplayP1Box;
     [SerializeField] Image _gameplayP2Box;
     [SerializeField] RectTransform _gameplayP1LetterGroup;
@@ -280,9 +307,17 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _gameplaySlideOffset = 36f;
     [SerializeField] float _gameplayTimerDrainPreviewDuration = 10f;
     [SerializeField] float _gameplayTimerPreviewWidth = 0f;
+    [SerializeField] Color _gameplayTimerBarNormalColor = new Color(0.52156866f, 0.52156866f, 0.52156866f, 1f);
+    [SerializeField] Color _gameplayTimerBarAcceleratedColor = new Color(1f, 0.45f, 0.2f, 1f);
     string _gameplayP1Word = "";
     string _gameplayP2Word = "";
+    int _gameplayP1SyncedLetterCount = -1;
+    int _gameplayP2SyncedLetterCount = -1;
     bool _gameplayInputListenerRegistered;
+    RoundManager _roundManagerAccelVisualSubscription;
+
+    const float GameplayTimerBarFullWidth = 1620f;
+    const float GameplayLetterRowOwnerScaleY = 2.5f;
 
     [Header("Round Result Elements")]
     [SerializeField] RectTransform _roundResultElementsGroupRect;
@@ -300,6 +335,8 @@ public class MainUIController : MonoBehaviour
     [SerializeField] string _roundResultP2Word = "aromatic";
     [SerializeField] int _roundResultP1Score = 21;
     [SerializeField] int _roundResultP2Score = 18;
+    bool _roundResultHostAnswerLetterEligible = true;
+    bool _roundResultClientAnswerLetterEligible = true;
     [SerializeField] Color _roundResultTextColor = new Color(0.93333334f, 0.91764706f, 0.89411765f, 1f);
     [SerializeField] Color _roundResultMutedTextColor = new Color(0.53333336f, 0.5254902f, 0.5137255f, 1f);
     [SerializeField] Color _roundResultTopStripeColor = new Color(0.38823533f, 0.3803922f, 0.37647063f, 1f);
@@ -310,6 +347,11 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _roundResultPanelMorphDuration = 0.55f;
     [SerializeField] float _roundResultStripeRevealDuration = 0.35f;
     [SerializeField] float _roundResultContentFadeDuration = 0.35f;
+    [Tooltip("Bar width when HP equals GameManager.MaxPlayerHp (P1/P2 share the same scale).")]
+    [SerializeField] float _roundResultScoreBarFullWidth = 217f;
+    [SerializeField] float _roundResultScoreBarHeight = 45f;
+    [Tooltip("Round result HP label: left edge X = score bar right + x; center Y = score bar center + y (same space as bar anchoredPosition).")]
+    [SerializeField] Vector2 _roundResultScoreTextOffsetFromBarEnd = new Vector2(13f, 0f);
     [SerializeField] float _roundResultContentStagger = 0.05f;
 
     [Header("Design Calibration Overlay")]
@@ -334,6 +376,10 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _initSkew = 60f;
     [SerializeField] Vector2 _initInputFieldSize;
     [SerializeField] bool _initialCaptured;
+
+    bool _waitingP2LobbyRevealCompleted;
+    bool _waitingLobbyCallbackRegistered;
+    bool _waitingCommandListenerRegistered;
 
     void Awake()
     {
@@ -598,60 +644,36 @@ public class MainUIController : MonoBehaviour
     void Start()
     {
         RegisterGameplayInputListener();
-        if (_playIntroOnStart) PlayIntro();
+        if (_playIntroOnStart)
+            PlayIntro();
     }
 
     void OnEnable()
     {
         RegisterGameplayInputListener();
+        TryRegisterWaitingLobbyCallback();
     }
 
     void OnDisable()
     {
         UnregisterGameplayInputListener();
+        TryUnregisterWaitingLobbyCallback();
+        UnregisterWaitingCommandInputListener();
+        UnsubscribeRoundTimerAcceleratedVisual();
+        _awaitingResolutionScoresWhileLoading = false;
+        if (_deferredResolutionRoundResultCoroutine != null)
+        {
+            StopCoroutine(_deferredResolutionRoundResultCoroutine);
+            _deferredResolutionRoundResultCoroutine = null;
+        }
     }
 
     void Update()
     {
         if (_showPromptCalibrationOverlay)
             RefreshPromptCalibrationOverlay();
-
-        if (_enableDebugNextStateKey && Input.GetKeyDown(_debugNextStateKey))
-            TransitionToNextDebugState();
-    }
-
-    void TransitionToNextDebugState()
-    {
-        switch (_currentState)
-        {
-            case MainUIState.Start:
-                TransitionToTutorial();
-                break;
-            case MainUIState.Tutorial:
-                TransitionToRoomId();
-                break;
-            case MainUIState.RoomId:
-                TransitionToWaiting();
-                break;
-            case MainUIState.Waiting:
-                TransitionToLoading();
-                break;
-            case MainUIState.Loading:
-                TransitionToPromptShowcase();
-                break;
-            case MainUIState.PromptShowcase:
-                TransitionToGameplay();
-                break;
-            case MainUIState.Gameplay:
-                TransitionToRoundResult();
-                break;
-            case MainUIState.RoundResult:
-                TransitionToGameEnd();
-                break;
-            case MainUIState.GameEnd:
-                ResetToStart();
-                break;
-        }
+        if (!_waitingLobbyCallbackRegistered)
+            TryRegisterWaitingLobbyCallback();
     }
 
     [ContextMenu("Play Intro")]
@@ -668,7 +690,8 @@ public class MainUIController : MonoBehaviour
         yield return new WaitForSeconds(_introGapSeconds);
         _hintTypewriter.Play();
         yield return new WaitUntil(() => !_hintTypewriter.IsPlaying);
-        if (_hintCycler != null) _hintCycler.StartCycling();
+        if (_hintCycler != null)
+            _hintCycler.StartCycling();
     }
 
     [ContextMenu("Transition To Tutorial")]
@@ -713,6 +736,9 @@ public class MainUIController : MonoBehaviour
         if (_tutorialTitleTypewriter != null) _tutorialTitleTypewriter.Hide();
         if (_pressSpaceGroup != null) _pressSpaceGroup.alpha = 0f;
         StartCoroutine(TutorialRevealRoutine());
+
+        if (UI.UIManager.Instance != null)
+            UI.UIManager.Instance.EnterTutorialScreen(transitionMainUiToTutorial: false);
     }
 
     [ContextMenu("Transition To Room ID")]
@@ -721,12 +747,16 @@ public class MainUIController : MonoBehaviour
         DOTween.Kill(this);
         StopAllCoroutines();
 
+        if (_currentState == MainUIState.Loading)
+            DismissLoadingOverlayImmediate();
+
         if (_hintCycler != null) _hintCycler.StopCycling();
 
         var seq = DOTween.Sequence().SetId(this);
-        FadeStateDifference(seq, _currentState, MainUIState.RoomId);
+        var fromState = _currentState;
+        FadeStateDifference(seq, fromState, MainUIState.RoomId);
 
-        if (_currentState == MainUIState.Tutorial)
+        if (fromState == MainUIState.Tutorial)
             AddCmykBarFromTutorialToRoomIdTween(seq);
         else
             AddCmykBarToRoomIdTween(seq);
@@ -770,12 +800,14 @@ public class MainUIController : MonoBehaviour
     }
 
     [ContextMenu("Transition To Waiting")]
-    public void TransitionToWaiting()
+    public void TransitionToWaiting(string sessionRoomNameForWaitingRoomIdLine = null)
     {
         DOTween.Kill(this);
         StopAllCoroutines();
 
         if (_hintCycler != null) _hintCycler.StopCycling();
+
+        ApplyWaitingRoomIdTypewriterLine(sessionRoomNameForWaitingRoomIdLine);
 
         var seq = DOTween.Sequence().SetId(this);
         FadeStateDifference(seq, _currentState, MainUIState.Waiting);
@@ -792,12 +824,12 @@ public class MainUIController : MonoBehaviour
             }
         }
 
-        // InputField: clear text, fade its current content out, leave its rect alone
-        if (_inputField != null)
+        // InputField: enable typing for waiting commands ("ready")
+        if (UI.UIManager.Instance != null)
         {
-            _inputField.DeactivateInputField();
-            _inputField.readOnly = true;
-            _inputField.text = string.Empty;
+            UI.UIManager.Instance.SetAnswerInputEnabled(true);
+            UI.UIManager.Instance.SetAnswerInputReadOnly(false);
+            UI.UIManager.Instance.ClearAnswerInputField();
         }
         if (_inputFieldContentGroup != null)
             seq.Join(_inputFieldContentGroup.DOFade(0f, _fadeOutDuration).SetEase(_ease));
@@ -817,12 +849,25 @@ public class MainUIController : MonoBehaviour
         if (_waitingTitleGroup != null) _waitingTitleGroup.alpha = 0f;
         if (_waitingRoomIdGroup != null) _waitingRoomIdGroup.alpha = 0f;
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
+        _waitingP2LobbyRevealCompleted = false;
         ConfigureWaitingPlayerIconsLayout();
         ApplyWaitingTextStyles();
         if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
 
+        TryRegisterWaitingLobbyCallback();
+        RegisterWaitingCommandInputListener();
         StartCoroutine(WaitingRevealRoutine());
+    }
+
+    void ApplyWaitingRoomIdTypewriterLine(string sessionRoomName)
+    {
+        if (string.IsNullOrWhiteSpace(sessionRoomName) || _waitingRoomIdTypewriter == null)
+            return;
+
+        var tmp = _waitingRoomIdTypewriter.GetComponent<TMP_Text>();
+        if (tmp != null)
+            tmp.text = $"room id: {sessionRoomName}";
     }
 
     [ContextMenu("Transition To Loading")]
@@ -835,6 +880,118 @@ public class MainUIController : MonoBehaviour
         }
 
         TransitionToConfiguredState(MainUIState.Loading);
+    }
+
+    /// <summary>
+    /// Called when a round ends in MainUI flow: tear down answer listeners so the next Gameplay can re-register, clear prompt latch, then Loading hold until <see cref="PromptGenerator"/> pushes the next prompt (same path as match start).
+    /// </summary>
+    public void BeginNextRoundFromResolution() => ResetMatchFlowToLoadingAwaitingPrompt();
+
+    /// <summary>
+    /// Match-session UI reset: same entry as a new round after resolution — clears local gameplay input wiring, kills round-result / prompt defer coroutines,
+    /// clears the prompt latch, then full-screen <see cref="MainUIState.Loading"/> until <see cref="NotifyPromptReceivedFromServer"/> (normally after <see cref="UI.UIManager.SetMainUiPrompt"/>).
+    /// For lobby / CMYK start screen use <see cref="ResetToStart"/> instead.
+    /// </summary>
+    public void ResetMatchFlowToLoadingAwaitingPrompt()
+    {
+        foreach (var client in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
+        {
+            if (!client.IsOwner) continue;
+            client.ResetGameplayAnswerListenersForNewRound();
+            break;
+        }
+
+        PrepareForRoundResultTransitionCleanup();
+
+        _gameplayP1Word = string.Empty;
+        _gameplayP2Word = string.Empty;
+        _gameplayP1SyncedLetterCount = -1;
+        _gameplayP2SyncedLetterCount = -1;
+        RefreshGameplayLetterBlocks();
+
+        _promptReceivedFromServer = false;
+        _promptShowcaseTransitionStarted = false;
+
+        EnterLoadingHoldForPrompt();
+    }
+
+    public void EnterLoadingHoldForPrompt()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+        UnsubscribeRoundTimerAcceleratedVisual();
+
+        // Important: we need to be in the Loading state so TransitionToPromptShowcase
+        // uses the Loading -> PromptShowcase animated path. For hold-loading we switch
+        // state immediately (no tween), then wait for prompt push.
+        SetStateVisibilityImmediate(MainUIState.Loading);
+        _promptShowcaseTransitionStarted = false;
+        _loadingHoldStartUnscaledTime = Time.unscaledTime;
+        if (_deferredPromptShowcaseCoroutine != null)
+        {
+            StopCoroutine(_deferredPromptShowcaseCoroutine);
+            _deferredPromptShowcaseCoroutine = null;
+        }
+        if (_debugPromptFlow)
+            Debug.Log($"[MainUIController] EnterLoadingHoldForPrompt -> state={_currentState} promptReceived={_promptReceivedFromServer}");
+
+        if (_loadingScreenRect != null && _loadingScreenGroup != null)
+        {
+            PrepareLoadingWipeStart();
+            _loadingScreenRect.SetAsLastSibling();
+            SetLoadingWipeComplete();
+            _loadingScreenGroup.alpha = 1f;
+            _loadingScreenGroup.interactable = false;
+            _loadingScreenGroup.blocksRaycasts = false;
+        }
+
+        HideSharedPromptAndInputForFullScreenLoadingOverlay();
+
+        _awaitingPromptFromServerWhileLoading = true;
+
+        // If the prompt already arrived before we got into Loading, advance immediately.
+        if (_promptReceivedFromServer && _currentState == MainUIState.Loading)
+            NotifyPromptReceivedFromServer();
+    }
+
+    IEnumerator DeferredAdvanceToPromptShowcaseRoutine(float delaySeconds)
+    {
+        // Always wait at least one frame so Loading visibility settles.
+        yield return null;
+        if (delaySeconds > 0f)
+            yield return new WaitForSecondsRealtime(delaySeconds);
+
+        _deferredPromptShowcaseCoroutine = null;
+        NotifyPromptReceivedFromServer();
+    }
+
+    public void NotifyPromptReceivedFromServer()
+    {
+        _promptReceivedFromServer = true;
+        if (_debugPromptFlow)
+            Debug.Log($"[MainUIController] NotifyPromptReceivedFromServer state={_currentState} awaiting={_awaitingPromptFromServerWhileLoading} started={_promptShowcaseTransitionStarted} prompt='{_promptText}' banned='{_promptBannedLetters}'");
+        if (!_awaitingPromptFromServerWhileLoading) return;
+        if (_currentState != MainUIState.Loading) return;
+        if (_promptShowcaseTransitionStarted) return;
+
+        // Ensure Loading is visible for at least a short moment, otherwise it feels like
+        // PromptShowcase starts mid-transition.
+        var elapsed = _loadingHoldStartUnscaledTime < 0f ? 999f : (Time.unscaledTime - _loadingHoldStartUnscaledTime);
+        var remaining = Mathf.Max(0f, _minLoadingHoldSecondsBeforePromptShowcase - elapsed);
+        if (remaining > 0f || _loadingHoldStartUnscaledTime >= 0f)
+        {
+            if (_deferredPromptShowcaseCoroutine == null && (remaining > 0f))
+            {
+                if (_debugPromptFlow)
+                    Debug.Log($"[MainUIController] Deferring PromptShowcase by {remaining:0.###}s to ensure Loading hold.");
+                _deferredPromptShowcaseCoroutine = StartCoroutine(DeferredAdvanceToPromptShowcaseRoutine(remaining));
+                return;
+            }
+        }
+
+        _awaitingPromptFromServerWhileLoading = false;
+        _promptShowcaseTransitionStarted = true;
+        TransitionToPromptShowcase();
     }
 
     void TransitionFromWaitingToLoading()
@@ -891,6 +1048,49 @@ public class MainUIController : MonoBehaviour
             _loadingScreenGroup.alpha = 1f;
     }
 
+    void DismissLoadingOverlayImmediate()
+    {
+        if (_loadingScreenGroup != null)
+            _loadingScreenGroup.DOKill(false);
+        if (_loadingScreenRect != null)
+            SetLoadingWipeComplete();
+        if (_loadingScreenGroup != null)
+            _loadingScreenGroup.alpha = 0f;
+    }
+
+    /// <summary>
+    /// After Gameplay, shared prompt/input CanvasGroups may not all be driven by <see cref="SetStateVisibilityImmediate"/> for Loading,
+    /// or the input strip can be <c>SetAsLastSibling</c> above the wipe. Force them fully transparent until the next flow restores layout.
+    /// </summary>
+    void HideSharedPromptAndInputForFullScreenLoadingOverlay()
+    {
+        if (_inputField != null)
+        {
+            _inputField.DeactivateInputField();
+            _inputField.interactable = false;
+            _inputField.readOnly = true;
+        }
+
+        if (_inputFieldContentGroup != null)
+        {
+            _inputFieldContentGroup.DOKill(false);
+            _inputFieldContentGroup.alpha = 0f;
+        }
+
+        var shell = GetInputFieldStateGroup();
+        if (shell != null)
+        {
+            shell.DOKill(false);
+            shell.alpha = 0f;
+        }
+
+        if (_promptSharedGroup != null)
+        {
+            _promptSharedGroup.DOKill(false);
+            _promptSharedGroup.alpha = 0f;
+        }
+    }
+
     void ApplyLoadingScreenLayout(float scaleY)
     {
         if (_loadingScreenRect == null) return;
@@ -918,6 +1118,8 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Prompt Showcase")]
     public void TransitionToPromptShowcase()
     {
+        if (_debugPromptFlow)
+            Debug.Log($"[MainUIController] TransitionToPromptShowcase currentState={_currentState} prompt='{_promptText}' banned='{_promptBannedLetters}'");
         if (_currentState == MainUIState.Loading)
         {
             TransitionFromLoadingToPromptShowcase();
@@ -931,9 +1133,13 @@ public class MainUIController : MonoBehaviour
     {
         DOTween.Kill(this);
         StopAllCoroutines();
+        if (_debugPromptFlow)
+            Debug.Log("[MainUIController] TransitionFromLoadingToPromptShowcase BEGIN (killed tweens/coroutines)");
 
         EnsurePromptSharedView();
         PreparePromptShowcaseStart();
+        if (_debugPromptFlow)
+            Debug.Log($"[MainUIController] PreparePromptShowcaseStart DONE maskMainX={_promptPromptMask?.anchoredPosition.x} maskBannedX={_promptBannedMask?.anchoredPosition.x} titleAlpha={_promptTitleText?.alpha} bannedAlpha={_promptBannedText?.alpha}");
 
         if (_promptSharedGroupRect != null)
             _promptSharedGroupRect.SetAsLastSibling();
@@ -974,6 +1180,7 @@ public class MainUIController : MonoBehaviour
         });
 
         _currentState = MainUIState.PromptShowcase;
+        _promptShowcaseFinishedNotified = false;
     }
 
     IEnumerator AutoGameplayAfterPromptRoutine()
@@ -1084,6 +1291,7 @@ public class MainUIController : MonoBehaviour
 
     void TransitionFromPromptShowcaseToGameplay()
     {
+        NotifyPromptShowcaseFinishedToServerIfNeeded();
         DOTween.Kill(this);
         StopAllCoroutines();
 
@@ -1108,19 +1316,46 @@ public class MainUIController : MonoBehaviour
         AddGameplayPlayerIconEnterTween(seq, _waitingP1Group);
         AddGameplayPlayerIconEnterTween(seq, _waitingP2Group);
 
-        seq.OnComplete(() =>
-        {
-            SetStateVisibilityImmediate(MainUIState.Gameplay);
-            if (_promptSharedGroup != null)
-                _promptSharedGroup.alpha = 1f;
-            SetSharedPromptVisibleForGameplay();
-            SetGameplayInputFieldVisible();
-            SetGameplayPlayerIconsVisible();
-            StartGameplayTimerPreview();
-            FocusGameplayInputField();
-        });
+        seq.OnComplete(FinishEnteringGameplayState);
 
         _currentState = MainUIState.Gameplay;
+    }
+
+    void NotifyPromptShowcaseFinishedToServerIfNeeded()
+    {
+        if (_promptShowcaseFinishedNotified) return;
+        if (NetworkManager.Singleton == null) return;
+        var rm = FindAnyObjectByType<RoundManager>();
+        if (rm == null) return;
+
+        _promptShowcaseFinishedNotified = true;
+        rm.NotifyPromptShowcaseFinishedServerRpc(NetworkManager.Singleton.LocalClientId);
+    }
+
+    /// <summary>
+    /// Tells the server this client has finished entering Gameplay UI. The round timer starts only after both clients notify (see <see cref="RoundManager.NotifyGameplayUiEnteredServerRpc"/>).
+    /// </summary>
+    void NotifyGameplayUiEnteredToServer()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient) return;
+        var rm = FindAnyObjectByType<RoundManager>();
+        if (rm == null || !rm.IsSpawned) return;
+
+        rm.NotifyGameplayUiEnteredServerRpc(NetworkManager.Singleton.LocalClientId);
+    }
+
+    /// <summary>
+    /// Registers shared <see cref="TMP_InputField.onValueChanged"/> and <see cref="TMP_InputField.onSubmit"/> on the local owner <see cref="Client"/> (word typing + submit).
+    /// </summary>
+    void RegisterLocalOwnerGameplayAnswerInput()
+    {
+        if (UI.UIManager.Instance == null) return;
+        foreach (var client in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
+        {
+            if (!client.IsOwner) continue;
+            client.OnEnteredGameplayScreen();
+            return;
+        }
     }
 
     void AddPromptToGameplayTween(Sequence seq)
@@ -1186,35 +1421,148 @@ public class MainUIController : MonoBehaviour
         seq.Join(rect.DOAnchorPosY(rect.anchoredPosition.y + _gameplaySlideOffset, _gameplayFadeDuration).SetEase(_ease));
     }
 
-    void AddRoundResultPlayerIconTween(Sequence seq, CanvasGroup group, Vector2 targetPosition, bool showLocalIndicator)
+    void AddRoundResultPlayerIconTween(Sequence seq, CanvasGroup group, Vector2 targetPosition, bool isP1Slot)
     {
         if (seq == null || group == null) return;
         if (!(group.transform is RectTransform rect)) return;
 
+        var showLocal = IsLocalYouIndicatorForSlot(isP1Slot);
+        var icon = group.GetComponent<PlayerIcon>();
+        if (icon != null)
+            icon.IsLocal = showLocal;
         ConfigurePlayerIconBoxForGameplay(rect);
-        ConfigurePlayerIconIndicatorForGameplay(rect, showLocalIndicator);
+        ConfigurePlayerIconIndicatorForGameplay(rect, icon != null ? icon.IsLocal : showLocal);
         seq.Join(group.DOFade(1f, _roundResultTransitionDuration).SetEase(_ease));
         seq.Join(rect.DOAnchorPos(targetPosition, _roundResultTransitionDuration).SetEase(_ease));
         seq.Join(rect.DOSizeDelta(new Vector2(100f, 100f), _roundResultTransitionDuration).SetEase(_ease));
     }
 
-    [ContextMenu("Transition To Round Result")]
-    public void TransitionToRoundResult()
+    /// <summary>
+    /// Fills round-result copy from the same host/client answers and HP used by the legacy resolution screen (host = P1). Call before <see cref="TransitionToRoundResult"/> when entering from <see cref="RoundManager"/> resolution.
+    /// </summary>
+    public void ApplyRoundResolutionData(string hostAnswer, string clientAnswer, int hostHp, int clientHp, bool hostAnswerLetterEligible = true, bool clientAnswerLetterEligible = true)
     {
-        if (_currentState == MainUIState.Gameplay)
-        {
-            TransitionFromGameplayToRoundResult();
-            return;
-        }
-
-        TransitionToConfiguredState(MainUIState.RoundResult);
+        _roundResultP1Word = hostAnswer ?? "";
+        _roundResultP2Word = clientAnswer ?? "";
+        _roundResultP1Score = hostHp;
+        _roundResultP2Score = clientHp;
+        _roundResultHostAnswerLetterEligible = hostAnswerLetterEligible;
+        _roundResultClientAnswerLetterEligible = clientAnswerLetterEligible;
     }
 
-    void TransitionFromGameplayToRoundResult()
+    /// <summary>
+    /// MainUI flow: after resolution damage is applied on the server, show Loading until local <see cref="Client.CurrentHp"/> matches the server snapshot, then play the Round Result entrance (same tween as direct gameplay → result).
+    /// </summary>
+    public void BeginResolutionScoreSyncThenRoundResult(string hostAnswer, string clientAnswer, int hostHpAfter, int clientHpAfter, bool hostAnswerLetterEligible, bool clientAnswerLetterEligible)
+    {
+        PrepareForRoundResultTransitionCleanup();
+
+        _pendingResolutionHostAnswer = hostAnswer ?? "";
+        _pendingResolutionClientAnswer = clientAnswer ?? "";
+        _pendingResolutionHostHpTarget = hostHpAfter;
+        _pendingResolutionClientHpTarget = clientHpAfter;
+        _pendingResolutionHostAnswerLetterEligible = hostAnswerLetterEligible;
+        _pendingResolutionClientAnswerLetterEligible = clientAnswerLetterEligible;
+
+        _awaitingPromptFromServerWhileLoading = false;
+        if (_deferredPromptShowcaseCoroutine != null)
+        {
+            StopCoroutine(_deferredPromptShowcaseCoroutine);
+            _deferredPromptShowcaseCoroutine = null;
+        }
+
+        SetStateVisibilityImmediate(MainUIState.Loading);
+        _promptShowcaseTransitionStarted = false;
+        _loadingHoldStartUnscaledTime = Time.unscaledTime;
+
+        if (_loadingScreenRect != null && _loadingScreenGroup != null)
+        {
+            PrepareLoadingWipeStart();
+            _loadingScreenRect.SetAsLastSibling();
+            SetLoadingWipeComplete();
+            _loadingScreenGroup.alpha = 1f;
+            _loadingScreenGroup.interactable = false;
+            _loadingScreenGroup.blocksRaycasts = false;
+        }
+
+        HideSharedPromptAndInputForFullScreenLoadingOverlay();
+
+        _awaitingResolutionScoresWhileLoading = true;
+        _deferredResolutionRoundResultCoroutine = StartCoroutine(WaitResolutionHpSyncAndEnterRoundResultRoutine());
+    }
+
+    IEnumerator WaitResolutionHpSyncAndEnterRoundResultRoutine()
+    {
+        yield return null;
+
+        var deadline = Time.realtimeSinceStartup + k_resolutionHpSyncTimeoutSeconds;
+        while (_awaitingResolutionScoresWhileLoading && Time.realtimeSinceStartup < deadline)
+        {
+            if (LocalResolutionHpMatchesPendingTargets())
+                break;
+            yield return null;
+        }
+
+        if (!_awaitingResolutionScoresWhileLoading)
+            yield break;
+
+        var elapsed = _loadingHoldStartUnscaledTime < 0f ? 999f : (Time.unscaledTime - _loadingHoldStartUnscaledTime);
+        var remainingMin = Mathf.Max(0f, _minLoadingHoldSecondsBeforeRoundResult - elapsed);
+        if (remainingMin > 0f)
+            yield return new WaitForSecondsRealtime(remainingMin);
+
+        _awaitingResolutionScoresWhileLoading = false;
+        _deferredResolutionRoundResultCoroutine = null;
+
+        var matched = LocalResolutionHpMatchesPendingTargets();
+        var p1Hp = _pendingResolutionHostHpTarget;
+        var p2Hp = _pendingResolutionClientHpTarget;
+        if (matched && PlayerManager.Instance != null)
+        {
+            var host = PlayerManager.Instance.GetHost();
+            var client = PlayerManager.Instance.GetClient(1);
+            if (host != null && client != null)
+            {
+                p1Hp = host.CurrentHp.Value;
+                p2Hp = client.CurrentHp.Value;
+            }
+        }
+
+        ApplyRoundResolutionData(_pendingResolutionHostAnswer, _pendingResolutionClientAnswer, p1Hp, p2Hp, _pendingResolutionHostAnswerLetterEligible, _pendingResolutionClientAnswerLetterEligible);
+
+        // Do not call StopAllCoroutines() here — this code runs inside WaitResolutionHpSyncAndEnterRoundResultRoutine.
+        DOTween.Kill(this);
+        UnsubscribeRoundTimerAcceleratedVisual();
+        _deferredPromptShowcaseCoroutine = null;
+        _deferredResolutionRoundResultCoroutine = null;
+
+        RunRoundResultEntranceTweenSequence();
+    }
+
+    bool LocalResolutionHpMatchesPendingTargets()
+    {
+        if (PlayerManager.Instance == null) return false;
+
+        var host = PlayerManager.Instance.GetHost();
+        var client = PlayerManager.Instance.GetClient(1);
+        if (host == null || client == null) return false;
+
+        return host.CurrentHp.Value == _pendingResolutionHostHpTarget &&
+               client.CurrentHp.Value == _pendingResolutionClientHpTarget;
+    }
+
+    void PrepareForRoundResultTransitionCleanup()
     {
         DOTween.Kill(this);
         StopAllCoroutines();
+        _deferredPromptShowcaseCoroutine = null;
+        _deferredResolutionRoundResultCoroutine = null;
+        UnsubscribeRoundTimerAcceleratedVisual();
+        _awaitingResolutionScoresWhileLoading = false;
+    }
 
+    void RunRoundResultEntranceTweenSequence()
+    {
         EnsurePromptSharedView();
         EnsureGameplayElementsView();
         EnsureRoundResultElementsView();
@@ -1292,6 +1640,24 @@ public class MainUIController : MonoBehaviour
         _currentState = MainUIState.RoundResult;
     }
 
+    [ContextMenu("Transition To Round Result")]
+    public void TransitionToRoundResult()
+    {
+        if (_currentState == MainUIState.Gameplay)
+        {
+            TransitionFromGameplayToRoundResult();
+            return;
+        }
+
+        TransitionToConfiguredState(MainUIState.RoundResult);
+    }
+
+    void TransitionFromGameplayToRoundResult()
+    {
+        PrepareForRoundResultTransitionCleanup();
+        RunRoundResultEntranceTweenSequence();
+    }
+
     [ContextMenu("Transition To Game End")]
     public void TransitionToGameEnd()
     {
@@ -1322,13 +1688,7 @@ public class MainUIController : MonoBehaviour
         }
 
         if (targetState == MainUIState.Gameplay)
-        {
-            seq.OnComplete(() =>
-            {
-                StartGameplayTimerPreview();
-                FocusGameplayInputField();
-            });
-        }
+            seq.OnComplete(FinishEnteringGameplayState);
     }
 
     IEnumerator WaitingRevealRoutine()
@@ -1371,11 +1731,16 @@ public class MainUIController : MonoBehaviour
         }
         yield return new WaitForSeconds(_waitingContentStagger);
 
-        // 3) P1 + P2 fade in (the only non-typewriter elements)
+        // 3) P1 + optional P2 fade in (host alone: only P1 until second client connects)
         if (_waitingP1Group != null)
             _waitingP1Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
-        if (_waitingP2Group != null)
+        if (_waitingP2Group != null && ShouldShowWaitingP2PlayerIcon() && !_waitingP2LobbyRevealCompleted)
+        {
+            _waitingP2LobbyRevealCompleted = true;
             _waitingP2Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+        }
+        else if (_waitingP2Group != null && !_waitingP2LobbyRevealCompleted)
+            _waitingP2Group.alpha = 0f;
         yield return new WaitForSeconds(_waitingContentFadeDuration + _waitingContentStagger);
 
         // 4) "type ready to ready up" hint typewriter
@@ -1396,11 +1761,9 @@ public class MainUIController : MonoBehaviour
         }
         if (_inputFieldContentGroup != null)
             _inputFieldContentGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
-        if (_inputField != null)
-        {
-            _inputField.DeactivateInputField();
-            _inputField.enabled = false;
-        }
+        UI.UIManager.Instance?.SetAnswerInputEnabled(true);
+        UI.UIManager.Instance?.SetAnswerInputReadOnly(false);
+        UI.UIManager.Instance?.FocusAnswerInputField();
     }
 
     IEnumerator RoomIdRevealRoutine(float delayBeforeReveal)
@@ -1531,13 +1894,17 @@ public class MainUIController : MonoBehaviour
         if (_waitingRoomIdTypewriter != null) _waitingRoomIdTypewriter.Hide();
         if (_waitingHintGroup != null) _waitingHintGroup.alpha = 0f;
         if (_waitingHintTypewriter != null) _waitingHintTypewriter.Hide();
+        _waitingP2LobbyRevealCompleted = false;
         ConfigureWaitingPlayerIconsLayout();
         if (_waitingP1Group != null) _waitingP1Group.alpha = 0f;
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
-        if (_loadingScreenRect != null)
-            SetLoadingWipeComplete();
-        if (_loadingScreenGroup != null)
-            _loadingScreenGroup.alpha = 0f;
+        DismissLoadingOverlayImmediate();
+
+        if (_inputFieldPlaceholderText != null)
+        {
+            _inputFieldPlaceholderText.text = _roomIdPlaceholder;
+            _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
+        }
 
         EnsurePromptSharedView();
         PreparePromptShowcaseStart();
@@ -1935,6 +2302,8 @@ public class MainUIController : MonoBehaviour
 
     void SetPromptTextForReveal()
     {
+        if (_debugPromptFlow)
+            Debug.Log($"[MainUIController] SetPromptTextForReveal prompt='{_promptText}' banned='{_promptBannedLetters}'");
         if (_promptTitleText != null)
         {
             _promptTitleText.richText = true;
@@ -1953,6 +2322,13 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.alpha = 1f;
         }
+    }
+
+    public void SetPromptForShowcase(string promptText, string bannedLetters)
+    {
+        if (!string.IsNullOrWhiteSpace(promptText))
+            _promptText = promptText;
+        _promptBannedLetters = bannedLetters ?? "";
     }
 
     string GetBannedLetterRevealText()
@@ -2099,7 +2475,8 @@ public class MainUIController : MonoBehaviour
         if (_gameplayP2LetterGroup == null)
             _gameplayP2LetterGroup = CreateRect("GameplayP2LetterGroup", _gameplayElementsGroupRect);
 
-        PrepareGameplayInputFieldStart();
+        // Do not call PrepareGameplayInputFieldStart here: this method runs from UpdateGameplayRoundTimer /
+        // letter-block updates every frame; resetting input alpha to 0 here kept the shared field invisible.
         HideDeprecatedGameplayPlayerLabelCopies();
     }
 
@@ -2116,9 +2493,14 @@ public class MainUIController : MonoBehaviour
 
         SetOptionalGameObjectActive(_gameplayBackground, false);
 
-        ConfigureRect(_gameplayTimerBar, new Vector2(-900f, -322.5f), new Vector2(1620f, 35f), new Vector2(0f, 0.5f));
+        ConfigureRect(_gameplayTimerBar, new Vector2(-900f, -322.5f), new Vector2(GameplayTimerBarFullWidth, 35f), new Vector2(0f, 0.5f));
         ConfigureRect(_gameplayP1LetterGroup, GetGameplayP1LetterGroupPosition(), new Vector2(520f, 50f), new Vector2(0f, 0.5f));
         ConfigureRect(_gameplayP2LetterGroup, GetGameplayP2LetterGroupPosition(), new Vector2(520f, 50f), new Vector2(0f, 0.5f));
+
+        _gameplayP1SyncedLetterCount = -1;
+        _gameplayP2SyncedLetterCount = -1;
+        if (_gameplayP1LetterGroup != null) _gameplayP1LetterGroup.localScale = Vector3.one;
+        if (_gameplayP2LetterGroup != null) _gameplayP2LetterGroup.localScale = Vector3.one;
 
         RefreshGameplayLetterBlocks();
         PrepareGameplayInputFieldStart();
@@ -2377,14 +2759,14 @@ public class MainUIController : MonoBehaviour
         ConfigureImageRect(_roundResultPanel, GetRoundResultPanelPosition(), GetRoundResultPanelSize(), _promptInkColor);
         RemoveDeprecatedRoundResultStripeCopies();
 
-        ConfigureRoundResultTopLeftText(_roundResultP1WordText, GetRoundResultWordText(_roundResultP1Word, _roundResultP2Word, _gameplayP1LetterColor), GetRoundResultP1WordTopLeftPosition(), new Vector2(520f, 70f), 49f, _roundResultTextColor);
-        ConfigureRoundResultTopLeftText(_roundResultP2WordText, GetRoundResultWordText(_roundResultP2Word, _roundResultP1Word, _gameplayP2LetterColor), GetRoundResultP2WordTopLeftPosition(), new Vector2(520f, 70f), 49f, _roundResultTextColor);
+        ConfigureRoundResultTopLeftText(_roundResultP1WordText, GetRoundResultWordText(_roundResultP1Word, _roundResultP2Word, _gameplayP1LetterColor, _roundResultHostAnswerLetterEligible, _roundResultClientAnswerLetterEligible), GetRoundResultP1WordTopLeftPosition(), new Vector2(520f, 70f), 49f, _roundResultTextColor);
+        ConfigureRoundResultTopLeftText(_roundResultP2WordText, GetRoundResultWordText(_roundResultP2Word, _roundResultP1Word, _gameplayP2LetterColor, _roundResultClientAnswerLetterEligible, _roundResultHostAnswerLetterEligible), GetRoundResultP2WordTopLeftPosition(), new Vector2(520f, 70f), 49f, _roundResultTextColor);
         ConfigureRoundResultTopCenterText(_roundResultDeathLabelText, "death.", GetRoundResultDeathLabelTopCenterPosition(), new Vector2(140f, 60f), 36f, _roundResultMutedTextColor);
         ConfigureRoundResultCenterLeftText(_roundResultP1ScoreText, _roundResultP1Score.ToString(), GetRoundResultP1ScoreTextLeftCenterPosition(), new Vector2(120f, 70f), 49f, _roundResultTextColor);
         ConfigureRoundResultCenterLeftText(_roundResultP2ScoreText, _roundResultP2Score.ToString(), GetRoundResultP2ScoreTextLeftCenterPosition(), new Vector2(120f, 70f), 49f, _roundResultTextColor);
 
-        ConfigureRect(_roundResultP1ScoreBar, GetRoundResultP1ScoreBarPosition(), new Vector2(217f, 45f), new Vector2(0f, 0.5f));
-        ConfigureRect(_roundResultP2ScoreBar, GetRoundResultP2ScoreBarPosition(), new Vector2(190f, 45f), new Vector2(0f, 0.5f));
+        ConfigureRect(_roundResultP1ScoreBar, GetRoundResultP1ScoreBarPosition(), GetRoundResultScoreBarSizeForHp(_roundResultP1Score), new Vector2(0f, 0.5f));
+        ConfigureRect(_roundResultP2ScoreBar, GetRoundResultP2ScoreBarPosition(), GetRoundResultScoreBarSizeForHp(_roundResultP2Score), new Vector2(0f, 0.5f));
         ConfigureRect(_roundResultDeathLineGroup, GetRoundResultDeathLinePosition(), new Vector2(5f, 338f), new Vector2(0.5f, 0.5f));
         LayoutRoundResultDeathLineSegments();
         SetRoundResultSiblingOrder();
@@ -2560,13 +2942,17 @@ public class MainUIController : MonoBehaviour
         }
     }
 
-    string GetRoundResultWordText(string word, string opposingWord, Color advantageColor)
+    string GetRoundResultWordText(string word, string opposingWord, Color advantageColor, bool ownAnswerLetterEligible, bool opposingAnswerLetterEligible)
     {
         if (string.IsNullOrEmpty(word)) return string.Empty;
 
+        // Invalid / uncounted submission: show the typed string as plain default-colored text (no letter advantage / banned highlights).
+        if (!ownAnswerLetterEligible)
+            return word;
+
         var colorHex = ColorUtility.ToHtmlStringRGB(advantageColor);
         var ownLetterCount = CountLetters(word);
-        var opposingLetterCount = CountLetters(opposingWord);
+        var opposingLetterCount = opposingAnswerLetterEligible ? CountLetters(opposingWord) : 0;
         var letterIndex = 0;
         var result = new StringBuilder(word.Length);
 
@@ -2670,14 +3056,34 @@ public class MainUIController : MonoBehaviour
     Vector2 GetRoundResultDeathLinePosition() => new Vector2(-325f, -169f);
     Vector2 GetRoundResultP1ScoreBarPosition() => new Vector2(-325f, -100f);
     Vector2 GetRoundResultP2ScoreBarPosition() => new Vector2(-325f, -295f);
-    Vector2 GetRoundResultP1ScoreTextLeftCenterPosition() => new Vector2(-95f, -100f);
-    Vector2 GetRoundResultP2ScoreTextLeftCenterPosition() => new Vector2(-122f, -295f);
+
+    Vector2 GetRoundResultScoreBarSizeForHp(int currentHp)
+    {
+        var maxHp = GameManager.Instance != null ? GameManager.Instance.MaxPlayerHp : 20;
+        maxHp = Mathf.Max(1, maxHp);
+        var t = Mathf.Clamp01(currentHp / (float)maxHp);
+        var w = _roundResultScoreBarFullWidth * t;
+        return new Vector2(Mathf.Max(0f, w), _roundResultScoreBarHeight);
+    }
+    Vector2 GetRoundResultP1ScoreTextLeftCenterPosition()
+    {
+        var barPos = GetRoundResultP1ScoreBarPosition();
+        var barW = GetRoundResultScoreBarSizeForHp(_roundResultP1Score).x;
+        return new Vector2(barPos.x + barW + _roundResultScoreTextOffsetFromBarEnd.x, barPos.y + _roundResultScoreTextOffsetFromBarEnd.y);
+    }
+
+    Vector2 GetRoundResultP2ScoreTextLeftCenterPosition()
+    {
+        var barPos = GetRoundResultP2ScoreBarPosition();
+        var barW = GetRoundResultScoreBarSizeForHp(_roundResultP2Score).x;
+        return new Vector2(barPos.x + barW + _roundResultScoreTextOffsetFromBarEnd.x, barPos.y + _roundResultScoreTextOffsetFromBarEnd.y);
+    }
     Vector2 GetRoundResultPanelPosition() => new Vector2(0f, -52f);
     Vector2 GetRoundResultPanelSize() => new Vector2(1800f, 856f);
     Vector2 GetRoundResultStripePosition(int index) => new Vector2(0f, index == 0 ? 470f : index == 1 ? 436f : 402f);
     Vector2 GetRoundResultStripeStartPosition() => new Vector2(0f, GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f - 10f);
 
-    void SetSharedPromptVisibleForGameplay()
+    void SetSharedPromptVisibleForGameplay(bool preserveGameplayInputSubmitLock = false)
     {
         SetOptionalGameObjectActive(_promptSharedBackground, false);
         if (_promptPromptMask != null) _promptPromptMask.gameObject.SetActive(false);
@@ -2709,7 +3115,7 @@ public class MainUIController : MonoBehaviour
         }
 
         RefreshPromptCalibrationOverlay();
-        SetGameplayInputFieldVisible();
+        SetGameplayInputFieldVisible(preserveGameplayInputSubmitLock);
         HideDeprecatedGameplayPlayerLabelCopies();
     }
 
@@ -2762,7 +3168,7 @@ public class MainUIController : MonoBehaviour
         ConfigureGameplayInputFieldContent(0f);
     }
 
-    void SetGameplayInputFieldVisible()
+    void SetGameplayInputFieldVisible(bool preserveSubmitLock = false)
     {
         if (_inputFieldRect != null)
         {
@@ -2770,7 +3176,7 @@ public class MainUIController : MonoBehaviour
             SetGameplayInputFieldSiblingOrder();
         }
 
-        ConfigureGameplayInputFieldContent(1f);
+        ConfigureGameplayInputFieldContent(1f, preserveSubmitLock);
     }
 
     void SetGameplayInputFieldSiblingOrder()
@@ -2797,19 +3203,35 @@ public class MainUIController : MonoBehaviour
             seq.Join(_inputFieldContentGroup.DOFade(1f, _gameplayFadeDuration).SetEase(_ease));
     }
 
-    void ConfigureGameplayInputFieldContent(float alpha)
+    void ConfigureGameplayInputFieldContent(float alpha, bool preserveSubmitLock = false)
     {
+        if (_inputFieldContentGroup != null)
+            _inputFieldContentGroup.DOKill(false);
+        var shellPre = GetInputFieldStateGroup();
+        if (shellPre != null)
+            shellPre.DOKill(false);
+
         if (_inputField != null)
         {
             _inputField.enabled = true;
-            _inputField.interactable = true;
             _inputField.transition = Selectable.Transition.None;
-            _inputField.readOnly = false;
-            _inputField.SetTextWithoutNotify(string.Empty);
+            if (preserveSubmitLock)
+            {
+                _inputField.interactable = false;
+                _inputField.readOnly = true;
+                _inputField.DeactivateInputField();
+            }
+            else
+            {
+                _inputField.interactable = true;
+                _inputField.readOnly = false;
+                _inputField.SetTextWithoutNotify(string.Empty);
+            }
+
             if (_inputField.targetGraphic != null)
                 _inputField.targetGraphic.color = _promptInkColor;
         }
-        if (_inputFieldPlaceholderText != null)
+        if (_inputFieldPlaceholderText != null && !preserveSubmitLock)
         {
             _inputFieldPlaceholderText.text = _gameplayInputPlaceholder;
             _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
@@ -2829,6 +3251,9 @@ public class MainUIController : MonoBehaviour
             inputGroup.blocksRaycasts = alpha > 0f;
         }
 
+        if (_debugGameplaySharedInputVisibility && alpha >= 0.99f)
+            DebugLogSharedInputField($"ConfigureGameplayInputFieldContent(alpha={alpha})", null, includeAncestors: true);
+
         _gameplayP1Word = _inputField != null ? _inputField.text : "";
         RefreshGameplayLetterBlocks();
     }
@@ -2846,6 +3271,9 @@ public class MainUIController : MonoBehaviour
 
         if (_inputField == null) yield break;
 
+        if (TryGetLocalOwnerClient(out var owner) && owner.AnswerCheckedValid.Value)
+            yield break;
+
         _inputField.enabled = true;
         _inputField.interactable = true;
         _inputField.readOnly = false;
@@ -2855,6 +3283,21 @@ public class MainUIController : MonoBehaviour
 
         _inputField.Select();
         _inputField.ActivateInputField();
+    }
+
+    static bool TryGetLocalOwnerClient(out Client client)
+    {
+        foreach (var c in FindObjectsByType<Client>(FindObjectsSortMode.InstanceID))
+        {
+            if (c.IsOwner)
+            {
+                client = c;
+                return true;
+            }
+        }
+
+        client = null;
+        return false;
     }
 
     void PrepareGameplayPlayerIconsStart()
@@ -2877,7 +3320,7 @@ public class MainUIController : MonoBehaviour
         ConfigureRoundResultPlayerIcon(_waitingP2Group, GetRoundResultP2IconPosition(), false);
     }
 
-    void ConfigureGameplayPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
+    void ConfigureGameplayPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool isP1Slot)
     {
         if (group == null || !(group.transform is RectTransform rect)) return;
 
@@ -2885,12 +3328,16 @@ public class MainUIController : MonoBehaviour
         group.interactable = false;
         group.blocksRaycasts = false;
         ConfigureRect(rect, anchoredPosition, new Vector2(120f, 120f), new Vector2(0.5f, 0.5f));
+        var showLocal = IsLocalYouIndicatorForSlot(isP1Slot);
+        var icon = group.GetComponent<PlayerIcon>();
+        if (icon != null)
+            icon.IsLocal = showLocal;
         ConfigurePlayerIconBoxForGameplay(rect);
-        ConfigurePlayerIconIndicatorForGameplay(rect, showLocalIndicator);
+        ConfigurePlayerIconIndicatorForGameplay(rect, icon != null ? icon.IsLocal : showLocal);
         rect.SetAsLastSibling();
     }
 
-    void ConfigureRoundResultPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
+    void ConfigureRoundResultPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool isP1Slot)
     {
         if (group == null || !(group.transform is RectTransform rect)) return;
 
@@ -2898,9 +3345,22 @@ public class MainUIController : MonoBehaviour
         group.interactable = false;
         group.blocksRaycasts = false;
         ConfigureRect(rect, anchoredPosition, new Vector2(100f, 100f), new Vector2(0.5f, 0.5f));
+        var showLocal = IsLocalYouIndicatorForSlot(isP1Slot);
+        var icon = group.GetComponent<PlayerIcon>();
+        if (icon != null)
+            icon.IsLocal = showLocal;
         ConfigurePlayerIconBoxForGameplay(rect);
-        ConfigurePlayerIconIndicatorForRoundResult(rect, showLocalIndicator);
+        ConfigurePlayerIconIndicatorForRoundResult(rect, icon != null ? icon.IsLocal : showLocal);
         rect.SetAsLastSibling();
+    }
+
+    /// <summary>P1 row = host (clientId 0); P2 row = second client. Used with <see cref="PlayerIcon.IsLocal"/>.</summary>
+    static bool IsLocalYouIndicatorForSlot(bool isP1Slot)
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient)
+            return false;
+        var localId = NetworkManager.Singleton.LocalClientId;
+        return isP1Slot ? localId == 0 : localId == 1;
     }
 
     void SetGameplayPlayerIconSiblingOrder()
@@ -3003,19 +3463,133 @@ public class MainUIController : MonoBehaviour
         }
     }
 
-    void ConfigureWaitingPlayerIconsLayout()
+    static bool ShouldShowWaitingP2PlayerIcon()
     {
-        ConfigureWaitingPlayerIcon(_waitingP1Group, new Vector2(-687.54f, -122.601395f), true);
-        ConfigureWaitingPlayerIcon(_waitingP2Group, new Vector2(-399.5f, -122.601395f), false);
+        var nm = NetworkManager.Singleton;
+        if (nm == null || !nm.IsClient)
+            return true;
+        return nm.ConnectedClients.Count >= 2;
     }
 
-    void ConfigureWaitingPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool showLocalIndicator)
+    void TryRegisterWaitingLobbyCallback()
+    {
+        if (_waitingLobbyCallbackRegistered) return;
+        if (NetworkManager.Singleton == null) return;
+        NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnectedWaitingLobbyRevealP2;
+        _waitingLobbyCallbackRegistered = true;
+    }
+
+    void TryUnregisterWaitingLobbyCallback()
+    {
+        if (!_waitingLobbyCallbackRegistered) return;
+        if (NetworkManager.Singleton != null)
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnectedWaitingLobbyRevealP2;
+        _waitingLobbyCallbackRegistered = false;
+    }
+
+    void OnClientConnectedWaitingLobbyRevealP2(ulong clientId)
+    {
+        if (_currentState != MainUIState.Waiting) return;
+        if (NetworkManager.Singleton == null) return;
+        // Refresh PlayerIcon.IsLocal on every peer when someone connects (second player joins).
+        ConfigureWaitingPlayerIconsLayout();
+        if (NetworkManager.Singleton.LocalClientId != 0) return;
+        RevealWaitingP2PlayerIconFromLobbyIfNeeded();
+    }
+
+    void RevealWaitingP2PlayerIconFromLobbyIfNeeded()
+    {
+        if (_waitingP2LobbyRevealCompleted) return;
+        if (_currentState != MainUIState.Waiting) return;
+        if (_waitingP2Group == null) return;
+        if (!ShouldShowWaitingP2PlayerIcon()) return;
+
+        _waitingP2LobbyRevealCompleted = true;
+        _waitingP2Group.DOKill();
+        _waitingP2Group.alpha = 0f;
+        _waitingP2Group.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
+    }
+
+    void RegisterWaitingCommandInputListener()
+    {
+        if (_waitingCommandListenerRegistered) return;
+        if (UI.UIManager.Instance == null) return;
+        if (UI.UIManager.Instance.AnswerInputField == null) return;
+        UI.UIManager.Instance.AddSubmitListenerToAnswerInputField(OnWaitingCommandSubmit);
+        _waitingCommandListenerRegistered = true;
+    }
+
+    void UnregisterWaitingCommandInputListener()
+    {
+        if (!_waitingCommandListenerRegistered) return;
+        if (UI.UIManager.Instance != null)
+            UI.UIManager.Instance.RemoveSubmitListenerFromAnswerInputField(OnWaitingCommandSubmit);
+        _waitingCommandListenerRegistered = false;
+    }
+
+    void UpdateWaitingCommandListenerForState(MainUIState state)
+    {
+        if (state == MainUIState.Waiting) RegisterWaitingCommandInputListener();
+        else UnregisterWaitingCommandInputListener();
+    }
+
+    void OnWaitingCommandSubmit(string content)
+    {
+        if (_debugSharedCommandInput)
+            Debug.Log($"[MainUIController] OnWaitingCommandSubmit state={_currentState} raw='{content ?? "<null>"}'");
+
+        if (_currentState != MainUIState.Waiting) return;
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            if (_debugSharedCommandInput) Debug.Log("[MainUIController] ignore: whitespace");
+            return;
+        }
+
+        var key = content.Trim().ToLowerInvariant();
+        if (key != "ready")
+        {
+            if (_debugSharedCommandInput) Debug.Log($"[MainUIController] ignore: key='{key}'");
+            return;
+        }
+
+        if (_debugSharedCommandInput) Debug.Log("[MainUIController] READY matched -> clear/focus + send ready rpc");
+        UI.UIManager.Instance?.ClearAnswerInputField();
+        UI.UIManager.Instance?.FocusAnswerInputField();
+
+        var gm = GameManager.Instance;
+        if (gm == null)
+        {
+            Debug.LogWarning("MainUIController: GameManager.Instance missing; cannot mark ready.");
+            return;
+        }
+
+        var nm = NetworkManager.Singleton;
+        if (nm == null)
+        {
+            Debug.LogWarning("MainUIController: NetworkManager.Singleton missing; cannot mark ready.");
+            return;
+        }
+
+        gm.SetClientReadyServerRpc(nm.LocalClientId, true);
+    }
+
+    void ConfigureWaitingPlayerIconsLayout()
+    {
+        ConfigureWaitingPlayerIcon(_waitingP1Group, new Vector2(-687.54f, -122.601395f), isP1Slot: true);
+        ConfigureWaitingPlayerIcon(_waitingP2Group, new Vector2(-399.5f, -122.601395f), isP1Slot: false);
+    }
+
+    void ConfigureWaitingPlayerIcon(CanvasGroup group, Vector2 anchoredPosition, bool isP1Slot)
     {
         if (group == null || !(group.transform is RectTransform rect)) return;
 
         ConfigureRect(rect, anchoredPosition, new Vector2(220.1179f, 214.7207f), new Vector2(0.5f, 0.5f));
+        var showLocal = IsLocalYouIndicatorForSlot(isP1Slot);
+        var icon = group.GetComponent<PlayerIcon>();
+        if (icon != null)
+            icon.IsLocal = showLocal;
         ConfigurePlayerIconBoxForWaiting(rect);
-        ConfigurePlayerIconIndicatorForWaiting(rect, showLocalIndicator);
+        ConfigurePlayerIconIndicatorForWaiting(rect, icon != null ? icon.IsLocal : showLocal);
     }
 
     void ConfigurePlayerIconBoxForWaiting(RectTransform playerIconRoot)
@@ -3097,6 +3671,23 @@ public class MainUIController : MonoBehaviour
         RefreshGameplayLetterBlocks();
     }
 
+    /// <summary>
+    /// Shared TMP clears without onValueChanged; reset the word used for banned-letter styling so letter rows match an empty field.
+    /// </summary>
+    public void ResetGameplaySharedInputLetterPreviewForRefresh()
+    {
+        _gameplayP1Word = "";
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="UI.GameScreenUI.UpdateHintText"/> — driven by <see cref="Client.HintText"/> via <see cref="UI.UIManager.UpdateGameScreenHintText"/>.
+    /// </summary>
+    public void SetGameplayHintText(string hint)
+    {
+        if (_gameplayHintText == null) return;
+        _gameplayHintText.text = hint ?? string.Empty;
+    }
+
     public void SetGameplayPlayerWord(int playerIndex, string word)
     {
         if (playerIndex == 2)
@@ -3127,13 +3718,141 @@ public class MainUIController : MonoBehaviour
     {
         _gameplayP1Word = value ?? "";
         if (_currentState == MainUIState.Gameplay)
+        {
+            _gameplayP1SyncedLetterCount = -1;
             RefreshGameplayLetterBlocks();
+        }
+    }
+
+    void PlayTypingMusicOnEnteredGameplay()
+    {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayTypingMusic();
+    }
+
+    /// <summary>
+    /// Shared finalization when <see cref="MainUIState.Gameplay"/> is shown. Required for <see cref="TransitionToConfiguredState"/> path:
+    /// <see cref="PrepareGeneratedStateTarget"/> runs <see cref="PrepareGameplayInputFieldStart"/> which sets input alpha to 0 until this runs.
+    /// </summary>
+    void FinishEnteringGameplayState()
+    {
+        if (_debugGameplaySharedInputVisibility)
+            DebugLogSharedInputField("FinishEnteringGameplayState.start", null, includeAncestors: true);
+
+        if (_promptSharedGroup != null)
+            _promptSharedGroup.alpha = 1f;
+
+        var preserveSubmitLock = TryGetLocalOwnerClient(out var ownerClient) && ownerClient.AnswerCheckedValid.Value;
+        SetSharedPromptVisibleForGameplay(preserveSubmitLock);
+        SetGameplayPlayerIconsVisible();
+        // Snap serialized state groups after layout; then re-apply input strip so it is not left at alpha 0 by
+        // IsManuallyRevealed / missing references in _stateGroups vs. FadeStateDifference skipping unchanged groups.
+        SetStateVisibilityImmediate(MainUIState.Gameplay);
+        if (!preserveSubmitLock)
+        {
+            UI.UIManager.Instance?.UpdateAnswerInputFieldInteractability(true);
+            FocusGameplayInputField();
+        }
+        else
+            UI.UIManager.Instance?.UpdateAnswerInputFieldInteractability(false);
+
+        NotifyGameplayUiEnteredToServer();
+        RegisterLocalOwnerGameplayAnswerInput();
+        PlayTypingMusicOnEnteredGameplay();
+        SubscribeRoundTimerAcceleratedVisualIfNeeded();
+
+        if (_debugGameplaySharedInputVisibility)
+            StartCoroutine(DebugLogSharedInputFieldNextFrameCoroutine("FinishEnteringGameplayState+1frame"));
+    }
+
+    IEnumerator DebugLogSharedInputFieldNextFrameCoroutine(string phase)
+    {
+        yield return null;
+        DebugLogSharedInputField(phase, MainUIState.Gameplay, includeAncestors: true);
+    }
+
+    /// <summary>Same semantics as <see cref="UI.GameScreenUI.UpdateTimer"/> — normalized remaining time in [0,1].</summary>
+    public void UpdateGameplayRoundTimer(float normalizedRemaining, bool roundTimeAccelerated)
+    {
+        if (_currentState != MainUIState.Gameplay) return;
+
+        EnsureGameplayElementsView();
+        if (_gameplayTimerBar == null) return;
+
+        _gameplayTimerBar.DOKill(false);
+        var w = Mathf.Max(1f, GameplayTimerBarFullWidth * Mathf.Clamp01(normalizedRemaining));
+        _gameplayTimerBar.sizeDelta = new Vector2(w, _gameplayTimerBar.sizeDelta.y);
+
+        ApplyGameplayTimerBarAcceleratedColor(roundTimeAccelerated);
+    }
+
+    void SubscribeRoundTimerAcceleratedVisualIfNeeded()
+    {
+        var rm = FindAnyObjectByType<RoundManager>();
+        if (rm == null) return;
+        if (_roundManagerAccelVisualSubscription == rm) return;
+
+        UnsubscribeRoundTimerAcceleratedVisual();
+        _roundManagerAccelVisualSubscription = rm;
+        _roundManagerAccelVisualSubscription.AnyPlayerSubmittedThisRound.OnValueChanged += OnAnyPlayerSubmittedThisRoundForTimerBar;
+
+        if (_currentState == MainUIState.Gameplay)
+        {
+            EnsureGameplayElementsView();
+            ApplyGameplayTimerBarAcceleratedColor(_roundManagerAccelVisualSubscription.AnyPlayerSubmittedThisRound.Value);
+        }
+    }
+
+    void UnsubscribeRoundTimerAcceleratedVisual()
+    {
+        if (_roundManagerAccelVisualSubscription == null) return;
+
+        _roundManagerAccelVisualSubscription.AnyPlayerSubmittedThisRound.OnValueChanged -= OnAnyPlayerSubmittedThisRoundForTimerBar;
+        _roundManagerAccelVisualSubscription = null;
+    }
+
+    void OnAnyPlayerSubmittedThisRoundForTimerBar(bool previousValue, bool newValue)
+    {
+        ApplyGameplayTimerBarAcceleratedColor(newValue);
+    }
+
+    void ApplyGameplayTimerBarAcceleratedColor(bool accelerated)
+    {
+        if (_gameplayTimerBar == null) return;
+
+        var img = _gameplayTimerBar.GetComponent<Image>();
+        if (img != null)
+            img.color = accelerated ? _gameplayTimerBarAcceleratedColor : _gameplayTimerBarNormalColor;
+    }
+
+    /// <summary>Matches <see cref="UI.GameScreenUI.UpdateP1LettersCountUI"/> — letter block count + owner row scale.</summary>
+    public void UpdateGameplayP1LetterBlocks(int lettersCount, bool isOwner)
+    {
+        if (_currentState != MainUIState.Gameplay) return;
+
+        EnsureGameplayElementsView();
+        if (_gameplayP1LetterGroup == null) return;
+        _gameplayP1SyncedLetterCount = Mathf.Max(0, lettersCount);
+        _gameplayP1LetterGroup.localScale = new Vector3(1f, isOwner ? GameplayLetterRowOwnerScaleY : 1f, 1f);
+        RefreshGameplayLetterBlocks();
+    }
+
+    /// <summary>Matches <see cref="UI.GameScreenUI.UpdateP2LettersCountUI"/>.</summary>
+    public void UpdateGameplayP2LetterBlocks(int lettersCount, bool isOwner)
+    {
+        if (_currentState != MainUIState.Gameplay) return;
+
+        EnsureGameplayElementsView();
+        if (_gameplayP2LetterGroup == null) return;
+        _gameplayP2SyncedLetterCount = Mathf.Max(0, lettersCount);
+        _gameplayP2LetterGroup.localScale = new Vector3(1f, isOwner ? GameplayLetterRowOwnerScaleY : 1f, 1f);
+        RefreshGameplayLetterBlocks();
     }
 
     void RefreshGameplayLetterBlocks()
     {
-        var p1Count = CountLetters(_gameplayP1Word);
-        var p2Count = CountLetters(_gameplayP2Word);
+        var p1Count = _gameplayP1SyncedLetterCount >= 0 ? _gameplayP1SyncedLetterCount : CountLetters(_gameplayP1Word);
+        var p2Count = _gameplayP2SyncedLetterCount >= 0 ? _gameplayP2SyncedLetterCount : CountLetters(_gameplayP2Word);
 
         UpdateGameplayLetterBlockGroup(_gameplayP1LetterGroup, p1Count, p2Count, _gameplayP1LetterColor, ContainsBannedPromptLetter(_gameplayP1Word));
         UpdateGameplayLetterBlockGroup(_gameplayP2LetterGroup, p2Count, p1Count, _gameplayP2LetterColor, ContainsBannedPromptLetter(_gameplayP2Word));
@@ -3384,6 +4103,25 @@ public class MainUIController : MonoBehaviour
 #if UNITY_EDITOR
         if (!Application.isPlaying && CanEditPrefabAssetStructure()) return true;
 #endif
+        // In play mode, allow limited runtime creation of missing prefab-owned UI so the
+        // new unified-input flow can function even if MainUI.prefab is missing draft groups.
+        // This creates the objects UNDER the MainUI instance (not as scene roots), so it
+        // remains self-contained.
+        if (Application.isPlaying)
+        {
+            var allow =
+                itemName == GameplayElementsGroupName
+                || itemName.StartsWith("Gameplay", System.StringComparison.Ordinal)
+                || itemName == RoundResultElementsGroupName
+                || itemName.StartsWith("RoundResult", System.StringComparison.Ordinal);
+
+            if (allow)
+            {
+                Debug.LogWarning($"MainUIController: '{itemName}' missing in MainUI.prefab; creating at runtime as a temporary fallback.");
+                return true;
+            }
+        }
+
         Debug.LogError($"MainUIController expects '{itemName}' to exist in MainUI.prefab. Runtime UI creation is disabled.");
         return false;
     }
@@ -3816,20 +4554,124 @@ public class MainUIController : MonoBehaviour
 
         _currentState = to;
         RefreshPromptCalibrationOverlay();
+        SyncRoomIdScreenWithUIManager(to);
+        UpdateWaitingCommandListenerForState(to);
     }
 
     void SetStateVisibilityImmediate(MainUIState state)
     {
+        if (_debugGameplaySharedInputVisibility && state == MainUIState.Gameplay)
+            DebugLogSharedInputField("SetStateVisibilityImmediate.beforeLoop", MainUIState.Gameplay, includeAncestors: true);
+
         foreach (var cg in GetAllStateGroups())
         {
             if (cg == null) continue;
             cg.alpha = ContainsGroup(GetVisibleGroups(state), cg) && !IsManuallyRevealed(state, cg) ? 1f : 0f;
         }
 
+        if (state == MainUIState.Gameplay)
+            ForceGameplaySharedInputFieldCanvasGroupsOpaque();
+
+        if (_debugGameplaySharedInputVisibility && state == MainUIState.Gameplay)
+            DebugLogSharedInputField("SetStateVisibilityImmediate.afterForce", MainUIState.Gameplay, includeAncestors: true);
+
         _currentState = state;
         if (state == MainUIState.Waiting)
             ApplyWaitingDecorativeLineLayoutImmediate();
         RefreshPromptCalibrationOverlay();
+        SyncRoomIdScreenWithUIManager(state);
+        UpdateWaitingCommandListenerForState(state);
+    }
+
+    /// <summary>
+    /// TMP "Text Area" <see cref="_inputFieldContentGroup"/> is not part of <see cref="GetAllStateGroups"/>; the input shell
+    /// <see cref="GetInputFieldStateGroup"/> can also disagree with serialized state rows. Stop active fades and force full opacity for Gameplay.
+    /// </summary>
+    void ForceGameplaySharedInputFieldCanvasGroupsOpaque()
+    {
+        if (_debugGameplaySharedInputVisibility)
+            DebugLogSharedInputField("ForceGameplaySharedInputFieldCanvasGroupsOpaque.before", null, includeAncestors: true);
+
+        if (_inputFieldContentGroup != null)
+        {
+            _inputFieldContentGroup.DOKill(false);
+            _inputFieldContentGroup.alpha = 1f;
+        }
+
+        var shell = GetInputFieldStateGroup();
+        if (shell != null)
+        {
+            shell.DOKill(false);
+            shell.alpha = 1f;
+            shell.interactable = true;
+            shell.blocksRaycasts = true;
+        }
+
+        if (_debugGameplaySharedInputVisibility)
+            DebugLogSharedInputField("ForceGameplaySharedInputFieldCanvasGroupsOpaque.after", null, includeAncestors: true);
+    }
+
+    /// <summary>Deep visibility debug for <see cref="_debugGameplaySharedInputVisibility"/>.</summary>
+    void DebugLogSharedInputField(string phase, MainUIState? visibilitySnapState = null, bool includeAncestors = false)
+    {
+        if (!_debugGameplaySharedInputVisibility) return;
+
+        var frame = Time.frameCount;
+        var shell = GetInputFieldStateGroup();
+        var content = _inputFieldContentGroup;
+        var sameRef = shell != null && content != null && ReferenceEquals(shell, content);
+
+        Debug.Log(
+            $"[MainUIInputDbg][f{frame}] {phase}\n" +
+            $"  _currentState(before tick)={_currentState} activeSelf={gameObject.activeInHierarchy}\n" +
+            $"  _inputField={( _inputField != null ? _inputField.name : "NULL" )} enabled={(_inputField != null && _inputField.enabled)} interactable={(_inputField != null && _inputField.interactable)}\n" +
+            $"  _inputFieldRect={( _inputFieldRect != null ? _inputFieldRect.name : "NULL" )}\n" +
+            $"  shellCanvasGroup={( shell != null ? $"{shell.name} alpha={shell.alpha}" : "NULL (GetInputFieldStateGroup)" )}\n" +
+            $"  _inputFieldContentGroup={( content != null ? $"{content.name} alpha={content.alpha}" : "NULL" )}\n" +
+            $"  shell==contentRef: {sameRef}\n" +
+            $"  _gameplayElementsGroup={( _gameplayElementsGroup != null ? $"alpha={_gameplayElementsGroup.alpha}" : "NULL" )}\n" +
+            $"  _promptSharedGroup={( _promptSharedGroup != null ? $"alpha={_promptSharedGroup.alpha}" : "NULL" )}",
+            this);
+
+        if (includeAncestors && _inputFieldRect != null)
+            DebugLogCanvasGroupAncestors(_inputFieldRect, $"{phase}.ancestorsFromInputFieldRect");
+
+        if (visibilitySnapState.HasValue)
+        {
+            var st = visibilitySnapState.Value;
+            var vis = GetVisibleGroups(st);
+            var shellInVis = shell != null && ContainsGroup(vis, shell);
+            var contentInVis = content != null && ContainsGroup(vis, content);
+            var shellMan = shell != null && IsManuallyRevealed(st, shell);
+            var contentMan = content != null && IsManuallyRevealed(st, content);
+            Debug.Log(
+                $"[MainUIInputDbg][f{frame}] {phase} visibilitySnap={st}\n" +
+                $"  GetVisibleGroups count={( vis != null ? vis.Length : 0 )} shellInVisible={shellInVis} shellManuallyRevealed={shellMan}\n" +
+                $"  contentInVisible={contentInVis} contentManuallyRevealed={contentMan}\n" +
+                $"  shellWouldSnapAlpha={( shellInVis && !shellMan ? 1f : 0f )} contentWouldSnapAlpha={( contentInVis && !contentMan ? 1f : 0f )}",
+                this);
+        }
+    }
+
+    void DebugLogCanvasGroupAncestors(Transform leaf, string label)
+    {
+        if (leaf == null) return;
+
+        var t = leaf;
+        for (var depth = 0; t != null && depth < 12; depth++, t = t.parent)
+        {
+            var cg = t.GetComponent<CanvasGroup>();
+            if (cg == null) continue;
+            Debug.Log(
+                $"[MainUIInputDbg] {label} depth={depth} go='{t.name}' alpha={cg.alpha} interactable={cg.interactable} blocksRaycasts={cg.blocksRaycasts} ignoreParentGroups={cg.ignoreParentGroups}",
+                this);
+        }
+    }
+
+    void SyncRoomIdScreenWithUIManager(MainUIState state)
+    {
+        if (UI.UIManager.Instance != null)
+            UI.UIManager.Instance.SetRoomIdScreenForMainUiState(state);
     }
 
     void EnsureGeneratedStateView(MainUIState state)
@@ -4062,7 +4904,14 @@ public class MainUIController : MonoBehaviour
 
     CanvasGroup GetInputFieldStateGroup()
     {
-        return _inputFieldRect != null ? _inputFieldRect.GetComponent<CanvasGroup>() : null;
+        if (_inputFieldRect != null)
+        {
+            var g = _inputFieldRect.GetComponent<CanvasGroup>();
+            if (g != null)
+                return g;
+        }
+
+        return _inputField != null ? _inputField.GetComponent<CanvasGroup>() : null;
     }
 
     CanvasGroup GetDecorativeLineStateGroup()
@@ -4086,7 +4935,8 @@ public class MainUIController : MonoBehaviour
         foreach (var groupSet in _stateGroups)
         {
             if (groupSet == null || groupSet.state != state) continue;
-            return ContainsGroup(groupSet.manuallyRevealedGroups, cg);
+            if (ContainsGroup(groupSet.manuallyRevealedGroups, cg))
+                return true;
         }
 
         return false;

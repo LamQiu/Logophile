@@ -1,4 +1,3 @@
-using System;
 using TMPro;
 using UnityEngine;
 
@@ -6,23 +5,24 @@ namespace UI
 {
     public class MainMenuUI : MonoBehaviour
     {
-        [SerializeField] private TMP_InputField CommandInputField;
-
+        int _lastCommandHandledFrame = -1;
+        bool _listenerRegistered;
 
         private void OnEnable()
         {
-            CommandInputField.onEndEdit.AddListener(OnCommandInputFieldEndEdit);
+            TryRegisterListeners();
         }
 
         private void OnDisable()
         {
-            CommandInputField.onEndEdit.RemoveListener(OnCommandInputFieldEndEdit);
+            TryUnregisterListeners();
         }
 
         public void Show()
         {
             gameObject.SetActive(true);
-            CommandInputField.ActivateInputField();
+            TryRegisterListeners();
+            UIManager.Instance?.FocusAnswerInputField();
         }
 
         public void Hide()
@@ -30,22 +30,50 @@ namespace UI
             gameObject.SetActive(false);
         }
 
-        private void OnCommandInputFieldEndEdit(string content)
+        void Update()
         {
-            if(UIManager.Instance == null) return;
-            
-            if (content.ToLower() == UIManager.Instance.MainMenuCommandInputFieldEnterPlayKey)
-            {
-                UIManager.Instance.EnterConnectionScreen();
-            }
+            // UIManager / AnswerInputField may come online after this is enabled.
+            if (!_listenerRegistered)
+                TryRegisterListeners();
         }
 
-        private void Update()
+        void TryRegisterListeners()
         {
-            if (gameObject.activeSelf)
+            if (_listenerRegistered) return;
+            if (UIManager.Instance == null) return;
+
+            var field = UIManager.Instance.AnswerInputField;
+            if (field == null) return;
+
+            field.onSubmit.AddListener(OnCommandInputSubmitOrEndEdit);
+            field.onEndEdit.AddListener(OnCommandInputSubmitOrEndEdit);
+            _listenerRegistered = true;
+        }
+
+        void TryUnregisterListeners()
+        {
+            if (!_listenerRegistered) return;
+            if (UIManager.Instance == null) { _listenerRegistered = false; return; }
+
+            var field = UIManager.Instance.AnswerInputField;
+            if (field != null)
             {
-                CommandInputField.Select();
+                field.onSubmit.RemoveListener(OnCommandInputSubmitOrEndEdit);
+                field.onEndEdit.RemoveListener(OnCommandInputSubmitOrEndEdit);
             }
+
+            _listenerRegistered = false;
+        }
+
+        void OnCommandInputSubmitOrEndEdit(string content)
+        {
+            if (UIManager.Instance == null) return;
+
+            if (Time.frameCount == _lastCommandHandledFrame)
+                return;
+
+            _lastCommandHandledFrame = Time.frameCount;
+            UIManager.Instance.TryProcessMainMenuCommand(content);
         }
     }
 }
