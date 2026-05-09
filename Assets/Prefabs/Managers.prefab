@@ -52,7 +52,7 @@ MonoBehaviour:
   GameScreenUI: {fileID: 0}
   ResolutionScreenUI: {fileID: 0}
   WinScreenUI: {fileID: 0}
-  m_useMainUIForGameplay: 0
+  m_useMainUIForGameplay: 1
   m_mainUI: {fileID: 0}
   IsNotToBanLetterIcon: {fileID: 0}
   m_mainMenuCreateCommand: create
@@ -105,7 +105,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 600252051
+  GlobalObjectIdHash: 1454304884
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -300,6 +300,53 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!1 &2112474150612169644
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5574845918540978505}
+  - component: {fileID: 7624527806230937250}
+  m_Layer: 0
+  m_Name: GameplayTestManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5574845918540978505
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2112474150612169644}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2739350439052109015}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7624527806230937250
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2112474150612169644}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3a4169def7504a87b03b0ef08c96b93, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GameplayTestManager
+  _presetRoomWord: T
+  _skipBothPlayerReady: 1
+  _useSetRoomWord: 1
 --- !u!1 &4038124257439522196
 GameObject:
   m_ObjectHideFlags: 0
@@ -437,7 +484,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 4245806989
+  GlobalObjectIdHash: 2719501732
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -508,7 +555,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 1742592804
+  GlobalObjectIdHash: 504519614
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -535,14 +582,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PromptGenerator
   ShowTopMostFoldoutHeaderGroup: 1
   randomize: 1
+  _excludeEntryPromptType: 1
   prompts:
   - type: 1
     content: 13
-    entryIndex: 0
+    entryIndex: -1
     questionText: 
   - type: 2
     content: 15
-    entryIndex: 0
+    entryIndex: -1
     questionText: 
   usedPrompts: []
   CurrentPrompt:
@@ -596,7 +644,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 3972282903
+  GlobalObjectIdHash: 1952916086
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -622,10 +670,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoundManager
   ShowTopMostFoldoutHeaderGroup: 1
-  RoundTimeLimitInSeconds: 0
-  RoundTimeSpeedMultiplierAfterAnySubmit: 2
-  ResolutionTimeLimitInSeconds: 0
-  BanLetterAtStartOfResolutionPhaseOfRound: 3
+  RoundTimeLimitInSeconds: 15
+  RoundTimeSpeedMultiplierAfterAnySubmit: 3
+  ResolutionTimeLimitInSeconds: 12
+  BanLetterAtStartOfResolutionPhaseOfRound: 1
   SubmittedAnswers: []
   IsResolutionPhase:
     m_InternalValue: 0
@@ -672,6 +720,7 @@ Transform:
   - {fileID: 8288955059660988248}
   - {fileID: 5681663018384758252}
   - {fileID: 8564670162738086646}
+  - {fileID: 5574845918540978505}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &8087513428127356366
@@ -721,7 +770,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 3418295265
+  GlobalObjectIdHash: 2019268373
   InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
@@ -766,7 +815,7 @@ AudioSource:
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 0}
   m_PlayOnAwake: 0
-  m_Volume: 1
+  m_Volume: 0.4
   m_Pitch: 1
   Loop: 1
   Mute: 0
@@ -863,7 +912,7 @@ AudioSource:
   m_audioClip: {fileID: 0}
   m_Resource: {fileID: 0}
   m_PlayOnAwake: 0
-  m_Volume: 1
+  m_Volume: 0.4
   m_Pitch: 1
   Loop: 0
   Mute: 0
