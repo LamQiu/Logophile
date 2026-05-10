@@ -545,7 +545,7 @@ namespace UI
             string winText;
             if (playerID == localIdStr)
                 winText = "you win";
-            else if (playerID == "both")
+            else if (playerID == "both" || playerID == "draw")
                 winText = "both win";
             else
                 winText = "opponent wins";

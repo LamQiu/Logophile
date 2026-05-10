@@ -13,10 +13,14 @@ using Random = UnityEngine.Random;
 
 public class RoundManager : NetworkBehaviour
 {
-    public float RoundTimeLimitInSeconds;
-    /// <summary>Multiplier applied to round timer countdown after any player submits (server + clients stay in sync via <see cref="AnyPlayerSubmittedThisRound"/>).</summary>
-    public float RoundTimeSpeedMultiplierAfterAnySubmit = 2f;
-    public float ResolutionTimeLimitInSeconds;
+    /// <summary>Round phase countdown; sourced from <see cref="GameplayTestManager"/> when present, else a fixed default.</summary>
+    public float RoundTimeLimitInSeconds => GameplayTestManager.EffectiveRoundTimeLimitInSeconds;
+
+    /// <summary>Multiplier on round timer delta after any player submits (server + clients stay in sync via <see cref="AnyPlayerSubmittedThisRound"/>).</summary>
+    public float RoundTimeSpeedMultiplierAfterAnySubmit => GameplayTestManager.EffectiveRoundTimeSpeedMultiplierAfterAnySubmit;
+
+    /// <summary>Resolution phase countdown; sourced from <see cref="GameplayTestManager"/> when present, else a fixed default.</summary>
+    public float ResolutionTimeLimitInSeconds => GameplayTestManager.EffectiveResolutionTimeLimitInSeconds;
     public int BanLetterAtStartOfResolutionPhaseOfRound = 3;
     private int m_currentRoundIndex = 0;
     public List<string> SubmittedAnswers = new List<string>();
@@ -282,6 +286,15 @@ public class RoundManager : NetworkBehaviour
 
             //host.CurrentHp.Value += hostScore;
             //client.CurrentHp.Value += clientScore;
+
+            // End game immediately on the server so _ended is true before resolution can end (Space x2).
+            // Otherwise CheckWinState only runs after DelayCheckWinStateNUpdateScoreUI (0.1s) and EndResolutionPhase can call EnterNextRound() by mistake.
+            if (host.CurrentHp.Value <= 0 || client.CurrentHp.Value <= 0)
+            {
+                var gm = GameManager.Instance;
+                if (gm != null)
+                    gm.EndGameServerRpc();
+            }
 
             StartCoroutine(DelayCheckWinStateNUpdateScoreUI(host, client));
 
@@ -653,9 +666,11 @@ public class RoundManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void EndGameClientRpc(string playerID)
     {
-        UIManager.Instance.EnterWinScreenOrMainUiGameEnd(playerID);
+        if (UIManager.Instance != null)
+            UIManager.Instance.EnterWinScreenOrMainUiGameEnd(playerID);
         //ThemeMusicManager.Instance.PlayScoringTheme();
-        AudioManager.Instance.PlayWaitingMusic();
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayWaitingMusic();
     }
 
     // private List<string> m_usedAnswers = new List<string>();

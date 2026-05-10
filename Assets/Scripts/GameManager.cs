@@ -11,7 +11,8 @@ using Utilities;
 
 public class GameManager : NetworkSingleton<GameManager>
 {
-    public int MaxPlayerHp = 20;
+    /// <summary>Max HP per player; sourced from <see cref="GameplayTestManager"/> when present, else a fixed default.</summary>
+    public int MaxPlayerHp => GameplayTestManager.EffectiveMaxPlayerHp;
     public int WinGameScore = 50;
     public int MaxGameScore = 70;
     public static int s_WinGameScore = 50;

@@ -131,7 +131,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   ShowTopMostFoldoutHeaderGroup: 1
-  MaxPlayerHp: 20
   WinGameScore: 50
   MaxGameScore: 70
   GameStartedState:
@@ -347,6 +346,10 @@ MonoBehaviour:
   _presetRoomWord: T
   _skipBothPlayerReady: 1
   _useSetRoomWord: 1
+  _maxPlayerHp: 20
+  _roundTimeLimitInSeconds: 15
+  _roundTimeSpeedMultiplierAfterAnySubmit: 3
+  _resolutionTimeLimitInSeconds: 12
 --- !u!1 &4038124257439522196
 GameObject:
   m_ObjectHideFlags: 0
@@ -670,9 +673,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoundManager
   ShowTopMostFoldoutHeaderGroup: 1
-  RoundTimeLimitInSeconds: 15
-  RoundTimeSpeedMultiplierAfterAnySubmit: 3
-  ResolutionTimeLimitInSeconds: 12
   BanLetterAtStartOfResolutionPhaseOfRound: 1
   SubmittedAnswers: []
   IsResolutionPhase:

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.RegularExpressions;
 using DG.Tweening;
 using TMPro;
 using Unity.Netcode;
@@ -921,19 +922,42 @@ public class MainUIController : MonoBehaviour
         StopAllCoroutines();
         UnsubscribeRoundTimerAcceleratedVisual();
 
-        // Important: we need to be in the Loading state so TransitionToPromptShowcase
-        // uses the Loading -> PromptShowcase animated path. For hold-loading we switch
-        // state immediately (no tween), then wait for prompt push.
-        SetStateVisibilityImmediate(MainUIState.Loading);
-        _promptShowcaseTransitionStarted = false;
-        _loadingHoldStartUnscaledTime = Time.unscaledTime;
         if (_deferredPromptShowcaseCoroutine != null)
         {
             StopCoroutine(_deferredPromptShowcaseCoroutine);
             _deferredPromptShowcaseCoroutine = null;
         }
+
+        var seq = DOTween.Sequence().SetId(this);
+        if (AppendFadeOutAllUiCanvasGroupsBeforeLoading(seq, _fadeOutDuration))
+            seq.OnComplete(EnterLoadingHoldForPromptAfterFadeOut);
+        else
+            EnterLoadingHoldForPromptAfterFadeOut();
+    }
+
+    void EnterLoadingHoldForPromptAfterFadeOut()
+    {
+        // Important: we need to be in the Loading state so TransitionToPromptShowcase
+        // uses the Loading -> PromptShowcase animated path. For hold-loading we switch
+        // state immediately (no tween), then wait for prompt push.
+        ApplyMainLoadingOverlayVisualStateImmediate();
+
+        _awaitingPromptFromServerWhileLoading = true;
+
         if (_debugPromptFlow)
             Debug.Log($"[MainUIController] EnterLoadingHoldForPrompt -> state={_currentState} promptReceived={_promptReceivedFromServer}");
+
+        // If the prompt already arrived before we got into Loading, advance immediately.
+        if (_promptReceivedFromServer && _currentState == MainUIState.Loading)
+            NotifyPromptReceivedFromServer();
+    }
+
+    /// <summary>Sets <see cref="MainUIState.Loading"/> visibility + full-screen loading wipe; shared by prompt-hold and resolution→round-result loading.</summary>
+    void ApplyMainLoadingOverlayVisualStateImmediate()
+    {
+        SetStateVisibilityImmediate(MainUIState.Loading);
+        _promptShowcaseTransitionStarted = false;
+        _loadingHoldStartUnscaledTime = Time.unscaledTime;
 
         if (_loadingScreenRect != null && _loadingScreenGroup != null)
         {
@@ -946,12 +970,6 @@ public class MainUIController : MonoBehaviour
         }
 
         HideSharedPromptAndInputForFullScreenLoadingOverlay();
-
-        _awaitingPromptFromServerWhileLoading = true;
-
-        // If the prompt already arrived before we got into Loading, advance immediately.
-        if (_promptReceivedFromServer && _currentState == MainUIState.Loading)
-            NotifyPromptReceivedFromServer();
     }
 
     IEnumerator DeferredAdvanceToPromptShowcaseRoutine(float delaySeconds)
@@ -1007,13 +1025,20 @@ public class MainUIController : MonoBehaviour
         _loadingScreenGroup.blocksRaycasts = false;
 
         var seq = DOTween.Sequence().SetId(this);
+        AppendFadeOutAllUiCanvasGroupsBeforeLoading(seq, _fadeOutDuration);
+        seq.AppendCallback(() =>
+        {
+            _currentState = MainUIState.Loading;
+            RefreshPromptCalibrationOverlay();
+            SyncRoomIdScreenWithUIManager(MainUIState.Loading);
+            UpdateWaitingCommandListenerForState(MainUIState.Loading);
+        });
         seq.Append(_loadingScreenRect.DOScaleY(1f, _loadingWipeDuration).SetEase(_loadingWipeEase));
         seq.OnComplete(() =>
         {
             SetLoadingWipeComplete();
             StartCoroutine(AutoPromptAfterLoadingRoutine());
         });
-        _currentState = MainUIState.Loading;
     }
 
     IEnumerator AutoPromptAfterLoadingRoutine()
@@ -1471,21 +1496,16 @@ public class MainUIController : MonoBehaviour
             _deferredPromptShowcaseCoroutine = null;
         }
 
-        SetStateVisibilityImmediate(MainUIState.Loading);
-        _promptShowcaseTransitionStarted = false;
-        _loadingHoldStartUnscaledTime = Time.unscaledTime;
+        var seq = DOTween.Sequence().SetId(this);
+        if (AppendFadeOutAllUiCanvasGroupsBeforeLoading(seq, _fadeOutDuration))
+            seq.OnComplete(FinishBeginResolutionScoreSyncLoadingEntry);
+        else
+            FinishBeginResolutionScoreSyncLoadingEntry();
+    }
 
-        if (_loadingScreenRect != null && _loadingScreenGroup != null)
-        {
-            PrepareLoadingWipeStart();
-            _loadingScreenRect.SetAsLastSibling();
-            SetLoadingWipeComplete();
-            _loadingScreenGroup.alpha = 1f;
-            _loadingScreenGroup.interactable = false;
-            _loadingScreenGroup.blocksRaycasts = false;
-        }
-
-        HideSharedPromptAndInputForFullScreenLoadingOverlay();
+    void FinishBeginResolutionScoreSyncLoadingEntry()
+    {
+        ApplyMainLoadingOverlayVisualStateImmediate();
 
         _awaitingResolutionScoresWhileLoading = true;
         _deferredResolutionRoundResultCoroutine = StartCoroutine(WaitResolutionHpSyncAndEnterRoundResultRoutine());
@@ -1676,7 +1696,9 @@ public class MainUIController : MonoBehaviour
         PrepareGeneratedStateTarget(targetState);
 
         var seq = DOTween.Sequence().SetId(this);
-        FadeStateDifference(seq, _currentState, targetState);
+        if (targetState == MainUIState.Loading)
+            AppendFadeOutAllUiCanvasGroupsBeforeLoading(seq, _fadeOutDuration);
+        FadeStateDifference(seq, previousState, targetState);
 
         var animationSet = GetStateAnimationSet(targetState);
         if (animationSet != null)
@@ -2248,7 +2270,7 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.richText = false;
             _promptTitleText.overrideColorTags = true;
             _promptTitleText.color = _promptMaskTitleColor;
-            _promptTitleText.text = _promptMaskText;
+            _promptTitleText.text = GetPromptShowcaseMaskPhaseTitleFromCurrentRound();
             _promptTitleText.alpha = 0f;
             _promptTitleText.fontSize = 184f;
             _promptTitleText.alignment = TextAlignmentOptions.Left;
@@ -2291,6 +2313,20 @@ public class MainUIController : MonoBehaviour
             _promptBannedMask.localScale = Vector3.one;
             _promptBannedMask.transform.SetSiblingIndex(Mathf.Max(0, _promptSharedGroupRect.childCount - 3));
         }
+    }
+
+    /// <summary>Mask-phase title before <see cref="SetPromptTextForReveal"/>: this round's <see cref="PromptGenerator.PromptType"/> (same spacing rule as <see cref="PromptGenerator.Prompt.ToString"/> type half), or serialized <see cref="_promptMaskText"/> if unavailable.</summary>
+    string GetPromptShowcaseMaskPhaseTitleFromCurrentRound()
+    {
+        var pg = FindAnyObjectByType<PromptGenerator>();
+        if (pg == null)
+            return _promptMaskText;
+
+        var type = pg.CurrentPrompt.Value.type;
+        if (type == PromptGenerator.PromptType.None)
+            return _promptMaskText;
+
+        return Regex.Replace(type.ToString(), "([a-z])([A-Z])", "$1 $2");
     }
 
     float GetPromptMaskMainTargetX() => 1480f;
@@ -3493,7 +3529,8 @@ public class MainUIController : MonoBehaviour
         if (NetworkManager.Singleton == null) return;
         // Refresh PlayerIcon.IsLocal on every peer when someone connects (second player joins).
         ConfigureWaitingPlayerIconsLayout();
-        if (NetworkManager.Singleton.LocalClientId != 0) return;
+        // Must run on every client: non-host may have entered Waiting while alone (P2 icon skipped in
+        // WaitingRevealRoutine); only host used to call Reveal here, so P2's machine never faded P2 in.
         RevealWaitingP2PlayerIconFromLobbyIfNeeded();
     }
 
@@ -4531,15 +4568,77 @@ public class MainUIController : MonoBehaviour
         return result.ToArray();
     }
 
+    /// <summary>Fades every tracked UI <see cref="CanvasGroup"/> (except the loading wipe) to 0 so Loading never stacks on top at alpha 1.</summary>
+    /// <returns><c>true</c> if a fade tween was scheduled.</returns>
+    bool AppendFadeOutAllUiCanvasGroupsBeforeLoading(Sequence parent, float duration)
+    {
+        var unique = new HashSet<CanvasGroup>();
+        foreach (var cg in GetAllStateGroups())
+        {
+            if (cg != null && !ReferenceEquals(cg, _loadingScreenGroup))
+                unique.Add(cg);
+        }
+
+        foreach (var cg in new[]
+                 {
+                     _promptSharedGroup, _gameplayElementsGroup, _roundResultElementsGroup,
+                     _tutorialTitleGroup, _pressSpaceGroup, _roomIdTitleGroup, _roomIdHintGroup,
+                     _waitingTitleGroup, _waitingRoomIdGroup, _waitingHintGroup, _waitingP1Group, _waitingP2Group,
+                     _inputFieldContentGroup
+                 })
+        {
+            if (cg != null && !ReferenceEquals(cg, _loadingScreenGroup))
+                unique.Add(cg);
+        }
+
+        var shell = GetInputFieldStateGroup();
+        if (shell != null && !ReferenceEquals(shell, _loadingScreenGroup))
+            unique.Add(shell);
+
+        if (unique.Count == 0)
+            return false;
+
+        var inner = DOTween.Sequence().SetId(this);
+        var first = true;
+        foreach (var cg in unique)
+        {
+            cg.DOKill(false);
+            var tw = cg.DOFade(0f, duration).SetEase(_ease);
+            if (first)
+            {
+                inner.Append(tw);
+                first = false;
+            }
+            else inner.Join(tw);
+        }
+
+        parent.Append(inner);
+        return true;
+    }
+
     void FadeStateDifference(Sequence seq, MainUIState from, MainUIState to)
     {
         var fromGroups = GetVisibleGroups(from);
         var toGroups = GetVisibleGroups(to);
 
+        var phase = DOTween.Sequence().SetId(this);
+        var anyTween = false;
+
+        void AddTween(Tween tw)
+        {
+            if (tw == null) return;
+            if (!anyTween)
+            {
+                phase.Append(tw);
+                anyTween = true;
+            }
+            else phase.Join(tw);
+        }
+
         foreach (var cg in fromGroups)
         {
             if (cg == null || ContainsGroup(toGroups, cg)) continue;
-            seq.Join(cg.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+            AddTween(cg.DOFade(0f, _fadeOutDuration).SetEase(_ease));
         }
 
         foreach (var cg in toGroups)
@@ -4549,8 +4648,11 @@ public class MainUIController : MonoBehaviour
             cg.alpha = 0f;
             if (IsManuallyRevealed(to, cg)) continue;
 
-            seq.Join(cg.DOFade(1f, _fadeOutDuration).SetEase(_ease));
+            AddTween(cg.DOFade(1f, _fadeOutDuration).SetEase(_ease));
         }
+
+        if (anyTween)
+            seq.Append(phase);
 
         _currentState = to;
         RefreshPromptCalibrationOverlay();
@@ -4709,7 +4811,30 @@ public class MainUIController : MonoBehaviour
                 SetSharedPromptVisibleForRoundResult();
                 SetRoundResultPlayerIconsVisible();
                 break;
+            case MainUIState.GameEnd:
+                // RoundResult shares _promptSharedGroup with PromptShowcase; fade-only transitions can
+                // briefly read as the showcase layer. Hide it immediately before FadeStateDifference.
+                SuppressSharedPromptLayerForGameEndTransition();
+                break;
         }
+    }
+
+    /// <summary>
+    /// Hides the shared prompt root (same CanvasGroup as PromptShowcase) so RoundResult → GameEnd
+    /// never flashes the prompt-showcase stack during the state fade.
+    /// </summary>
+    void SuppressSharedPromptLayerForGameEndTransition()
+    {
+        if (_promptSharedGroup != null)
+        {
+            _promptSharedGroup.DOKill(false);
+            _promptSharedGroup.alpha = 0f;
+            _promptSharedGroup.interactable = false;
+            _promptSharedGroup.blocksRaycasts = false;
+        }
+
+        if (_promptPromptMask != null) _promptPromptMask.gameObject.SetActive(false);
+        if (_promptBannedMask != null) _promptBannedMask.gameObject.SetActive(false);
     }
 
     List<CanvasGroup> GetAllStateGroups()

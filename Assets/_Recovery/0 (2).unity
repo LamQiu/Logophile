@@ -4264,12 +4264,12 @@ PrefabInstance:
       propertyPath: roundTimes.Array.size
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 3751798781333751423, guid: c66087299efbc417088a621238896aa5, type: 3}
-      propertyPath: RoundTimeLimitInSeconds
+    - target: {fileID: 7624527806230937250, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: _roundTimeLimitInSeconds
       value: 15
       objectReference: {fileID: 0}
-    - target: {fileID: 3751798781333751423, guid: c66087299efbc417088a621238896aa5, type: 3}
-      propertyPath: ResolutionTimeLimitInSeconds
+    - target: {fileID: 7624527806230937250, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: _resolutionTimeLimitInSeconds
       value: 12
       objectReference: {fileID: 0}
     - target: {fileID: 3751798781333751423, guid: c66087299efbc417088a621238896aa5, type: 3}
@@ -4324,8 +4324,8 @@ PrefabInstance:
       propertyPath: m_Volume
       value: 0.4
       objectReference: {fileID: 0}
-    - target: {fileID: 6861691028035311343, guid: c66087299efbc417088a621238896aa5, type: 3}
-      propertyPath: MaxPlayerHp
+    - target: {fileID: 7624527806230937250, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: _maxPlayerHp
       value: 20
       objectReference: {fileID: 0}
     - target: {fileID: 6861691028035311343, guid: c66087299efbc417088a621238896aa5, type: 3}
