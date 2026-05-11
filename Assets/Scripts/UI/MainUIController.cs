@@ -155,6 +155,7 @@ public class MainUIController : MonoBehaviour
     [Header("State Visibility")]
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
+    [SerializeField] bool _forceSingleLineTextOverflow = true;
 
     /// <summary>Lobby / flow state for the single MainUI canvas (e.g. <see cref="UIManager"/> gating main-menu commands).</summary>
     public MainUIState CurrentState => _currentState;
@@ -403,6 +404,7 @@ public class MainUIController : MonoBehaviour
     {
         ApplyResolutionLock();
         DisableSceneOwnedGeneratedUiOrphans();
+        ApplySingleLineOverflowToOwnedText();
         if (!_initialCaptured) CaptureInitialState();
         SetStateVisibilityImmediate(_currentState);
         if (_currentState == MainUIState.Start)
@@ -418,6 +420,24 @@ public class MainUIController : MonoBehaviour
             return;
 
         Screen.SetResolution(_lockedResolution.x, _lockedResolution.y, _lockedFullScreenMode);
+    }
+
+    void ApplySingleLineOverflowToOwnedText()
+    {
+        if (!_forceSingleLineTextOverflow)
+            return;
+
+        foreach (var text in GetComponentsInChildren<TMP_Text>(true))
+            ApplySingleLineOverflow(text);
+    }
+
+    void ApplySingleLineOverflow(TMP_Text text)
+    {
+        if (text == null || !_forceSingleLineTextOverflow)
+            return;
+
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
     }
 
 #if UNITY_EDITOR
@@ -1930,9 +1950,8 @@ public class MainUIController : MonoBehaviour
         var hintText = GetHintText();
         if (hintText != null)
         {
+            ApplySingleLineOverflow(hintText);
             hintText.alignment = TextAlignmentOptions.Right;
-            hintText.textWrappingMode = TextWrappingModes.NoWrap;
-            hintText.overflowMode = TextOverflowModes.Overflow;
         }
     }
 
@@ -1966,7 +1985,10 @@ public class MainUIController : MonoBehaviour
 
         var text = typewriter.GetComponent<TMP_Text>();
         if (text != null)
+        {
+            ApplySingleLineOverflow(text);
             text.color = color;
+        }
     }
 
     void SetTypewriterText(TypewriterEffect typewriter, string value)
@@ -1975,7 +1997,10 @@ public class MainUIController : MonoBehaviour
 
         var text = typewriter.GetComponent<TMP_Text>();
         if (text != null)
+        {
+            ApplySingleLineOverflow(text);
             text.text = value ?? string.Empty;
+        }
     }
 
     void ConfigureWaitingDotsSpacing()
@@ -2628,6 +2653,7 @@ public class MainUIController : MonoBehaviour
         current.enableAutoSizing = false;
         current.richText = true;
         current.alignment = alignment;
+        ApplySingleLineOverflow(current);
         current.raycastTarget = false;
         if (fontSource != null && fontSource.font != null)
         {
@@ -3071,6 +3097,7 @@ public class MainUIController : MonoBehaviour
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = alignment;
+        ApplySingleLineOverflow(text);
         text.alpha = 1f;
         text.raycastTarget = false;
         ConfigureRect(text.rectTransform, position, text.rectTransform.sizeDelta, new Vector2(0.5f, 0.5f));
@@ -3086,6 +3113,7 @@ public class MainUIController : MonoBehaviour
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.TopLeft;
+        ApplySingleLineOverflow(text);
         text.alpha = 1f;
         text.raycastTarget = false;
         ConfigureTopLeftRect(text.rectTransform, topLeftPosition, size);
@@ -3101,6 +3129,7 @@ public class MainUIController : MonoBehaviour
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.Top;
+        ApplySingleLineOverflow(text);
         text.alpha = 1f;
         text.raycastTarget = false;
         ConfigureTopCenterRect(text.rectTransform, topCenterPosition, size);
@@ -3116,6 +3145,7 @@ public class MainUIController : MonoBehaviour
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.Left;
+        ApplySingleLineOverflow(text);
         text.alpha = 1f;
         text.raycastTarget = false;
         ConfigureCenterLeftRect(text.rectTransform, leftCenterPosition, size);
@@ -3188,6 +3218,7 @@ public class MainUIController : MonoBehaviour
         text.richText = true;
         text.overrideColorTags = false;
         text.alignment = alignment;
+        ApplySingleLineOverflow(text);
         text.color = color;
         text.text = value;
         text.alpha = 0f;
