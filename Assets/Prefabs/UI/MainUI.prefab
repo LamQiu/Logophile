@@ -372,7 +372,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: type "play"
+  m_text: Type "create" to create room
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
   m_sharedMaterial: {fileID: 2097077858174876890, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
@@ -406,7 +406,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 1000
   m_fontStyle: 0
-  m_HorizontalAlignment: 1
+  m_HorizontalAlignment: 4
   m_VerticalAlignment: 256
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -416,7 +416,7 @@ MonoBehaviour:
   m_lineSpacingMax: 0
   m_paragraphSpacing: 0
   m_charWidthMaxAdj: 0
-  m_TextWrappingMode: 1
+  m_TextWrappingMode: 0
   m_wordWrappingRatios: 0.4
   m_overflowMode: 0
   m_linkedTextComponent: {fileID: 0}
@@ -473,9 +473,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::HintCycler
   _typewriter: {fileID: 8435002844381068840}
   _hints:
-  - type "play" to start
-  - try type "tutorial"
-  - type "credits"
+  - Type "create" to create room
+  - Type "join" to join existing room
   _holdSeconds: 2
 --- !u!225 &8014289737757532617
 CanvasGroup:
@@ -7526,7 +7525,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: play
+  m_text: ''
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
   m_sharedMaterial: {fileID: 2097077858174876890, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
@@ -8447,6 +8446,7 @@ MonoBehaviour:
   _titleTypewriter: {fileID: 7186712667728132741}
   _hintTypewriter: {fileID: 8435002844381068840}
   _hintCycler: {fileID: 4610696033481222705}
+  _startHintText: Type "create" to create room
   _introGapSeconds: 0.3
   _playIntroOnStart: 1
   _cmykBar: {fileID: 6758141598997096658}
@@ -8592,6 +8592,7 @@ MonoBehaviour:
   _roomIdTitleGroup: {fileID: 7016132787650353461}
   _roomIdHintTypewriter: {fileID: 458494295061589825}
   _roomIdHintGroup: {fileID: 8785309386604417612}
+  _roomIdHintText: Type room id to join
   _roomIdTitleDelay: 0.4
   _roomIdHintGapAfterTitle: 0.2
   _waitingPlaceholder: ready
@@ -8630,7 +8631,7 @@ MonoBehaviour:
   _promptText: start with "a"
   _promptMaskText: start with
   _promptMaskBannedTextValue: banned letter
-  _promptBannedLetters: i
+  _promptBannedLetters: ''
   _minLoadingHoldSecondsBeforePromptShowcase: 0.15
   _minLoadingHoldSecondsBeforeRoundResult: 0.15
   _debugSharedCommandInput: 0
@@ -8863,7 +8864,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: type "create" or "join"
+  m_text: Type room id to join
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
   m_sharedMaterial: {fileID: 2097077858174876890, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
@@ -8964,9 +8965,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::HintCycler
   _typewriter: {fileID: 458494295061589825}
   _hints:
-  - type "play" to start
-  - try type "tutorial"
-  - type "credits"
+  - Type room id to join
   _holdSeconds: 2
 --- !u!225 &8785309386604417612
 CanvasGroup:
