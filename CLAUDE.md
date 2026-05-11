@@ -35,20 +35,21 @@ Three-tier pattern in `Assets/Scripts/Utilities/`:
 
 ### Core Managers (all NetworkBehaviours)
 
-- **GameManager** - game state, constants: WinGameScore=50, MaxGameScore=70, MaxPlayerHp=20. Uses `GameStartedState` NetworkVariable to trigger start when 2 players connect.
-- **RoundManager** - round state machine (see below).
-- **PlayerManager** - tracks connected players (max 2), maps clientId -> Player. Triggers `StartGameServerRpc()` when player count reaches 2.
-- **PromptGenerator** - creates word prompts using `Prompt` struct (INetworkSerializable) containing `PromptType` enum (None/StartWith/Contains/EndWith) and `PromptContent` enum (single letters A-Z minus F/J/Q/U/V/W/X/Z, plus common digraphs ER/ST/OR/IN/AN). Avoids repeats and consecutive same types. Filters out content containing banned letters.
+- **GameManager** - game state, constants: WinGameScore=50 and MaxGameScore=70. Max HP is read from `GameplayTestManager.EffectiveMaxPlayerHp` when a test manager exists, otherwise the fallback is 20. Tracks `GameStartedState` plus `P1Ready` / `P2Ready`; in the new MainUI lobby flow the match starts only after both clients submit `ready`.
+- **RoundManager** - round state machine (see below). In the MainUI lobby flow it generates the first prompt before the UI leaves Loading and starts the round timer only after both clients report that Gameplay UI has been entered.
+- **PlayerManager** - tracks connected players (max 2), maps clientId -> Player, and unregisters players on despawn/disconnect. It no longer auto-starts the game when player count reaches 2; ready flow is owned by `GameManager`.
+- **PromptGenerator** - creates word prompts using `Prompt` struct (INetworkSerializable) containing `PromptType` enum (None/Entry/StartWith/Contains/EndWith) and `PromptContent` enum (single letters A-Z minus F/J/Q/U/V/W/X/Z, plus common digraphs ER/ST/OR/IN/AN). Avoids repeats and consecutive same types. Filters out content containing banned letters. Can exclude Entry prompts via `_excludeEntryPromptType`, and pushes prompt text/banned-letter data to MainUI through `RoundManager.UpdateMainUiPromptClientRpc`.
 - **ScoreManager** - player scores via `NetworkList<PlayerScoreData>`.
 - **UIManager** - manages screen transitions.
 - **AudioManager / SoundManager** - FMOD audio integration.
+- **GameplayTestManager** - optional dev/test singleton in `Assets/Scripts/Debug/`. Inspector flags control preset room word, skip-both-ready behavior, and match tuning values for max HP, round duration, post-submit speed multiplier, and resolution duration. Production code falls back when no instance exists.
 
 ### Round State Machine (`RoundManager`)
 
 Three-phase cycle:
 
-1. **Round Phase** (~30s) - players type and submit. Timer accelerates 2x after the first player submits. `SubmitAnswerServerRpc()` tracks submissions, then triggers resolution when count >= 2 or timeout.
-2. **Resolution Phase** (3s) - review answers, calculate letter-count difference as HP damage via `ResoluteServerRpc()`. Both players confirm with Space (`ConfirmResolutionServerRpc`).
+1. **Round Phase** (default 15s) - players type and submit. Timer accelerates 3x after the first player submits by default. `SubmitAnswerServerRpc()` tracks submissions, then triggers resolution when count >= 2 or timeout. Time values are read from `GameplayTestManager` when present.
+2. **Resolution Phase** (default 12s) - review answers, calculate letter-count difference as HP damage via `ResoluteServerRpc()`. Both players confirm with Space (`ConfirmResolutionServerRpc`).
 3. **Clash Phase** (10s, optional) - triggered when both players submit the same word.
 
 After resolution: check win condition (HP <= 0 = loss) -> either `EndGameClientRpc()` or `EnterNextRound()`.
@@ -81,27 +82,31 @@ MainMenuUI -> ConnectionScreenUI -> WaitingScreenUI -> GameScreenUI
                                              WinScreenUI
 ```
 
-**New XD-driven flow** (implementation branches, prefabs in `Assets/Prefabs/UIDesign/` and `Assets/Prefabs/UI/MainUI.prefab`):
+**New XD-driven / MainUI flow** (now wired on `main` as an optional gameplay flow, prefabs in `Assets/Prefabs/UIDesign/` and `Assets/Prefabs/UI/MainUI.prefab`):
 
 ```text
-StartScreen -> Tutorial -> CreateJoin -> WaitingRoom -> Loading ->
+StartScreen -> Tutorial -> RoomId -> WaitingRoom -> Loading ->
 PromptShowcase -> Gameplay -> RoundResult -> GameEnd
 ```
 
-The new flow uses `Assets/Prefabs/UI/MainUI.prefab` with a single `MainUIController` and state enum for animation previews. It is presentation-only until gameplay/network logic is explicitly wired.
+The new flow uses `Assets/Prefabs/UI/MainUI.prefab` with a single `MainUIController` and state enum. `UIManager.m_useMainUIForGameplay` selects whether gameplay routes through MainUI or the legacy screens. When enabled, MainUI shares one TMP input across the start commands, room-code entry, waiting-room `ready`, and gameplay word input.
 
 Current implementation notes:
 
 - Shared objects morph across states via DOTween instead of swapping independent panels.
 - State visibility is controlled by serialized `State Groups` on `MainUIController`; new page groups should be added there instead of being spawned into the scene at runtime.
 - Prompt and gameplay UI content lives under prefab-owned groups (`PromptSharedGroup`, `GameplayElementsGroup`) inside `MainUI.prefab`. `MainUIController` may build missing prefab-owned UI while editing the prefab asset, but runtime scene-owned UI creation is disabled.
-- Waiting -> Loading uses a white/off-white wipe layer (`LoadingScreenRoot`). Loading auto-advances to PromptShowcase after a short delay.
-- PromptShowcase uses shared prompt text/mask elements. The black mask enters, prompt labels fade in place, then the mask slides to reveal the final prompt and banned-letter highlight.
-- PromptShowcase -> Gameplay is automatic after a short delay. The prompt/banned text morph to gameplay positions, player icons move into gameplay positions, and the shared `InputField (TMP)` morphs into the gameplay input area. Gameplay auto-focuses this input field after the transition.
-- Gameplay currently implements presentation-only timer bar preview, player icons, and per-player letter-count blocks. Letter-count blocks reflect typed word length; differential blocks use player colors, and banned-letter input flashes blocks red/gray.
-- Gameplay -> RoundResult is presentation-only and staged in `MainUIController`: non-input gameplay elements fade out, the shared `InputField (TMP)` background expands into the RoundResult black panel, gray stripes draw out above the panel, then prompt/player/death/score elements fade in. RoundResult score bars use a left pivot so later score-width animation can keep the left edge aligned to the death line.
+- Start accepts text commands through the shared input: `create` starts session creation and `join` enters RoomId. RoomId submits the typed room word to `ConnectionScreenUI.TriggerJoinSession`.
+- WaitingRoom accepts the shared-input command `ready`. `GameManager.SetClientReadyServerRpc` records `P1Ready` / `P2Ready`; after both ready flags are true the server calls `RoundManager.BeginMatchFromLobbyServer`, generates a prompt, and broadcasts Loading/PromptShowcase entry.
+- Waiting -> Loading uses a white/off-white wipe layer (`LoadingScreenRoot`). In networked match flow, Loading holds until `PromptGenerator` pushes the server prompt; design-preview loading can still auto-advance after a short delay.
+- PromptShowcase uses shared prompt text/mask elements. The black mask enters, prompt labels fade in place, then the mask slides to reveal the final prompt and banned-letter highlight. PromptShowcase -> Gameplay is automatic after a short delay; clients notify the server when PromptShowcase and Gameplay entry complete.
+- Gameplay is now wired to the owner `Client` input listener. The shared `InputField (TMP)` morphs into the gameplay input area, auto-focuses after transition, validates submit attempts through `Client.TrySubmitAnswer`, and updates MainUI timer/hint/letter-block views via `UIManager`.
+- Gameplay letter-count blocks reflect synced `Client.LetterCount`, differential blocks use player colors, and banned-letter input flashes blocks red/gray. The timer bar changes color when `RoundManager.AnyPlayerSubmittedThisRound` accelerates the round.
+- Gameplay -> RoundResult is driven by `RoundManager.EnterResolutionPhaseClientRpc`: MainUI shows Loading while waiting for local HP NetworkVariables to match the server resolution snapshot, then animates the RoundResult panel, stripes, prompt/player/word/death/score elements. Invalid answers are displayed as their typed text but are flagged non-eligible for scoring.
+- RoundResult -> next round returns to Loading and waits for the next server prompt. Game end uses `MainUIController.TransitionToGameEnd` when MainUI gameplay is enabled; legacy `WinScreenUI` is still used otherwise.
 - RoundResult layout tuning is centralized in `MainUIController` helper methods such as `GetRoundResultP1IconPosition`, `GetRoundResultP2IconPosition`, `GetRoundResultP1WordTopLeftPosition`, `GetRoundResultP2WordTopLeftPosition`, `GetRoundResultP1ScoreBarPosition`, `GetRoundResultP2ScoreBarPosition`, `GetRoundResultPanelPosition`, and `GetRoundResultPanelSize`.
-- The debug navigation key `Y` advances through the new flow for animation review.
+- The older debug navigation key `Y` was removed from `MainUIController`; use the real text-command and ready flow unless adding a deliberate editor-only preview hook.
+- Host debug reset: numpad `+` or Shift+`=` calls `GameManager.ResetGame()`.
 
 UI uses Unity UI (Canvas + TMP) for the project's own screens. `Assets/Blocks/` is a **third-party Unity sample kit** (Multiplayer Widgets / Sessions building blocks - `CopySessionCode`, `LeaveSession`, `PlayerList`, etc.) and is not the project's own UI code; treat it as a vendored package.
 
@@ -112,6 +117,7 @@ UI uses Unity UI (Canvas + TMP) for the project's own screens. `Assets/Blocks/` 
 - **DOTween** (Demigiant) - tweening/animation (asset, not in manifest)
 - **Odin Inspector** (Sirenix) - editor tooling (asset, not in manifest)
 - **Unity Input System** 1.18.0
+- **Unity Multiplayer Services** (`com.unity.services.multiplayer` 2.0.0) - session create/join by room word
 
 ## Asset Layout
 
@@ -137,3 +143,4 @@ UI uses Unity UI (Canvas + TMP) for the project's own screens. `Assets/Blocks/` 
 - `Assets/Scripts/Network Test/` contains networking test scripts. Treat it as non-production code.
 - Custom event system via `EventBetter` (publish/subscribe by message type) is used for scene-load notifications and other cross-system events where a direct reference would couple unrelated managers. Prefer direct references for one-to-one manager wiring; reach for EventBetter when the publisher should not know who the listeners are.
 - Extension methods live in `Assets/Scripts/Utilities/ExtensionMethods.cs`.
+- Shared TMP input ownership matters in the MainUI flow: use `UIManager.AnswerInputField` / `AddSubmitListenerToAnswerInputField` / `RemoveSubmitListenerFromAnswerInputField` instead of caching a specific legacy `GameScreenUI` input.
