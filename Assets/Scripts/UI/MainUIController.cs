@@ -140,6 +140,17 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _duration = 0.8f;
     [SerializeField] Ease _ease = Ease.InOutQuad;
 
+    [Header("Start To Join Transition")]
+    [SerializeField] float _startJoinSweepOutDuration = 0.45f;
+    [SerializeField] float _startJoinSweepReturnDuration = 0.35f;
+    [SerializeField] float _startJoinSweepExtraLeft = 24f;
+    [SerializeField] Ease _startJoinSweepEase = Ease.InOutCubic;
+
+    [Header("Resolution Lock")]
+    [SerializeField] bool _lockResolution = true;
+    [SerializeField] Vector2Int _lockedResolution = new Vector2Int(1920, 1080);
+    [SerializeField] FullScreenMode _lockedFullScreenMode = FullScreenMode.Windowed;
+
     [Header("State Visibility")]
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
@@ -381,12 +392,25 @@ public class MainUIController : MonoBehaviour
     bool _waitingP2LobbyRevealCompleted;
     bool _waitingLobbyCallbackRegistered;
     bool _waitingCommandListenerRegistered;
+    Vector2 _startTitleInitialAnchoredPosition;
+    bool _hasStartTitleInitialAnchoredPosition;
+    Color _startHintInitialColor;
+    bool _hasStartHintInitialColor;
 
     void Awake()
     {
+        ApplyResolutionLock();
         DisableSceneOwnedGeneratedUiOrphans();
         if (!_initialCaptured) CaptureInitialState();
         SetStateVisibilityImmediate(_currentState);
+    }
+
+    void ApplyResolutionLock()
+    {
+        if (!_lockResolution || !Application.isPlaying)
+            return;
+
+        Screen.SetResolution(_lockedResolution.x, _lockedResolution.y, _lockedFullScreenMode);
     }
 
 #if UNITY_EDITOR
@@ -745,7 +769,77 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Room ID")]
     public void TransitionToRoomId()
     {
+        if (_currentState == MainUIState.Start)
+        {
+            TransitionFromStartToRoomId();
+            return;
+        }
+
+        TransitionToRoomIdCore();
+    }
+
+    void TransitionFromStartToRoomId()
+    {
         DOTween.Kill(this);
+        StopAllCoroutines();
+
+        if (_hintCycler != null) _hintCycler.StopCycling();
+
+        var titleText = GetTitleText();
+        var hintText = GetHintText();
+        CaptureStartTitleInitialPosition(titleText);
+        CaptureStartHintInitialColor(hintText);
+        if (_titleTypewriter != null)
+        {
+            _titleTypewriter.Stop();
+            _titleTypewriter.ShowAll();
+        }
+        if (_hintTypewriter != null)
+            _hintTypewriter.Stop();
+
+        var titleCharacterCount = GetTitleCharacterCount(titleText);
+        SetTitleVisibleCharacters(titleText, titleCharacterCount);
+        SetHintAlpha(hintText, 1f);
+
+        if (_inputField != null)
+        {
+            _inputField.DeactivateInputField();
+            _inputField.readOnly = true;
+        }
+
+        if (_cmykBar == null)
+        {
+            SetTitleVisibleCharacters(titleText, 0);
+            TransitionToRoomIdCore();
+            return;
+        }
+
+        var startTipX = GetCmykBarLeftEdgeInParentSpace();
+        var sweepDeltaX = GetStartJoinSweepDeltaX();
+        var targetTipX = startTipX + sweepDeltaX;
+        var titleStartPosition = GetStartTitleAnchoredPosition(titleText);
+        var startPosition = _cmykBar.anchoredPosition;
+        var startSize = _cmykBar.sizeDelta;
+        var sweepTargetPosition = startPosition;
+        var sweepTargetSize = startSize;
+        GetStartJoinSweepBarTargets(sweepDeltaX, ref sweepTargetPosition, ref sweepTargetSize);
+
+        var seq = DOTween.Sequence().SetId(this);
+        seq.Append(_cmykBar.DOAnchorPos(sweepTargetPosition, _startJoinSweepOutDuration)
+            .SetEase(_startJoinSweepEase)
+            .OnUpdate(() => UpdateTitleFromStartJoinSweep(titleText, titleCharacterCount, startTipX, targetTipX, titleStartPosition)));
+        seq.Join(_cmykBar.DOSizeDelta(sweepTargetSize, _startJoinSweepOutDuration).SetEase(_startJoinSweepEase));
+        seq.Join(TweenHintAlpha(hintText, 0f, _startJoinSweepOutDuration));
+        seq.AppendCallback(() => SetTitleVisibleCharacters(titleText, 0));
+        seq.Append(_cmykBar.DOAnchorPos(startPosition, _startJoinSweepReturnDuration).SetEase(_startJoinSweepEase));
+        seq.Join(_cmykBar.DOSizeDelta(startSize, _startJoinSweepReturnDuration).SetEase(_startJoinSweepEase));
+        seq.OnComplete(() => TransitionToRoomIdCore(false, false));
+    }
+
+    void TransitionToRoomIdCore(bool killActiveTweens = true, bool animateCmykBar = true)
+    {
+        if (killActiveTweens)
+            DOTween.Kill(this);
         StopAllCoroutines();
 
         if (_currentState == MainUIState.Loading)
@@ -757,10 +851,13 @@ public class MainUIController : MonoBehaviour
         var fromState = _currentState;
         FadeStateDifference(seq, fromState, MainUIState.RoomId);
 
-        if (fromState == MainUIState.Tutorial)
-            AddCmykBarFromTutorialToRoomIdTween(seq);
-        else
-            AddCmykBarToRoomIdTween(seq);
+        if (animateCmykBar)
+        {
+            if (fromState == MainUIState.Tutorial)
+                AddCmykBarFromTutorialToRoomIdTween(seq);
+            else
+                AddCmykBarToRoomIdTween(seq);
+        }
 
         // Input field: re-enable editing, swap placeholder, fade content in, resize
         if (_inputField != null)
@@ -1895,6 +1992,11 @@ public class MainUIController : MonoBehaviour
         }
 
         SetStateVisibilityImmediate(MainUIState.Start);
+
+        RestoreStartTitleInitialPosition();
+        RestoreStartHintInitialColor();
+        if (_titleTypewriter != null) _titleTypewriter.ShowAll();
+        if (_hintTypewriter != null) _hintTypewriter.ShowAll();
 
         if (_tutorialTitleGroup != null) _tutorialTitleGroup.alpha = 0f;
         if (_tutorialTitleTypewriter != null) _tutorialTitleTypewriter.Hide();
@@ -4451,6 +4553,152 @@ public class MainUIController : MonoBehaviour
         cmykSeq.Join(TweenPreferredWidth(_layoutC, _roomIdCWidth, phaseTwo));
 
         seq.Join(cmykSeq);
+    }
+
+    float GetStartJoinSweepDeltaX()
+    {
+        if (_cmykBar == null)
+            return 0f;
+
+        var parent = _cmykBar.parent as RectTransform;
+        var targetLeft = parent != null ? parent.rect.xMin - Mathf.Max(0f, _startJoinSweepExtraLeft) : -_lockedResolution.x * 0.5f;
+        var currentLeft = GetCmykBarLeftEdgeInParentSpace();
+        return targetLeft - currentLeft;
+    }
+
+    void GetStartJoinSweepBarTargets(float leftEdgeDeltaX, ref Vector2 targetPosition, ref Vector2 targetSize)
+    {
+        if (_cmykBar == null)
+            return;
+
+        var widthDelta = Mathf.Max(0f, -leftEdgeDeltaX);
+        targetSize.x += widthDelta;
+        targetPosition.x += leftEdgeDeltaX * (1f - _cmykBar.pivot.x);
+    }
+
+    float GetCmykBarLeftEdgeInParentSpace()
+    {
+        if (_cmykBar == null)
+            return 0f;
+
+        var parent = _cmykBar.parent as RectTransform;
+        if (parent == null)
+            return _cmykBar.anchoredPosition.x + _cmykBar.rect.xMin;
+
+        var corners = new Vector3[4];
+        _cmykBar.GetWorldCorners(corners);
+        var left = float.PositiveInfinity;
+        for (var i = 0; i < corners.Length; i++)
+            left = Mathf.Min(left, parent.InverseTransformPoint(corners[i]).x);
+
+        return left;
+    }
+
+    void UpdateTitleFromStartJoinSweep(TMP_Text titleText, int characterCount, float startTipX, float targetTipX, Vector2 titleStartPosition)
+    {
+        if (titleText == null)
+            return;
+
+        var currentTipX = GetCmykBarLeftEdgeInParentSpace();
+        var denominator = Mathf.Abs(targetTipX - startTipX);
+        var progress = denominator <= Mathf.Epsilon ? 1f : Mathf.Clamp01(Mathf.Abs(currentTipX - startTipX) / denominator);
+        var titleRect = titleText.rectTransform;
+        if (titleRect != null)
+            titleRect.anchoredPosition = titleStartPosition + new Vector2(currentTipX - startTipX, 0f);
+
+        if (characterCount > 0)
+            SetTitleVisibleCharacters(titleText, Mathf.CeilToInt(characterCount * (1f - progress)));
+    }
+
+    TMP_Text GetTitleText()
+    {
+        return _titleTypewriter != null ? _titleTypewriter.GetComponent<TMP_Text>() : null;
+    }
+
+    TMP_Text GetHintText()
+    {
+        return _hintTypewriter != null ? _hintTypewriter.GetComponent<TMP_Text>() : null;
+    }
+
+    int GetTitleCharacterCount(TMP_Text titleText)
+    {
+        if (titleText == null)
+            return 0;
+
+        titleText.ForceMeshUpdate();
+        return titleText.textInfo.characterCount;
+    }
+
+    void SetTitleVisibleCharacters(TMP_Text titleText, int visibleCharacters)
+    {
+        if (titleText == null)
+            return;
+
+        titleText.maxVisibleCharacters = Mathf.Max(0, visibleCharacters);
+    }
+
+    Tween TweenHintAlpha(TMP_Text hintText, float targetAlpha, float duration)
+    {
+        if (hintText == null)
+            return null;
+
+        return DOTween.To(() => hintText.color.a, alpha => SetHintAlpha(hintText, alpha), targetAlpha, duration)
+            .SetEase(_startJoinSweepEase)
+            .SetId(this);
+    }
+
+    void SetHintAlpha(TMP_Text hintText, float alpha)
+    {
+        if (hintText == null)
+            return;
+
+        var color = hintText.color;
+        color.a = Mathf.Clamp01(alpha);
+        hintText.color = color;
+    }
+
+    void CaptureStartTitleInitialPosition(TMP_Text titleText)
+    {
+        if (_hasStartTitleInitialAnchoredPosition || titleText == null || titleText.rectTransform == null)
+            return;
+
+        _startTitleInitialAnchoredPosition = titleText.rectTransform.anchoredPosition;
+        _hasStartTitleInitialAnchoredPosition = true;
+    }
+
+    Vector2 GetStartTitleAnchoredPosition(TMP_Text titleText)
+    {
+        if (titleText == null || titleText.rectTransform == null)
+            return Vector2.zero;
+
+        return titleText.rectTransform.anchoredPosition;
+    }
+
+    void RestoreStartTitleInitialPosition()
+    {
+        var titleText = GetTitleText();
+        if (!_hasStartTitleInitialAnchoredPosition || titleText == null || titleText.rectTransform == null)
+            return;
+
+        titleText.rectTransform.anchoredPosition = _startTitleInitialAnchoredPosition;
+    }
+
+    void CaptureStartHintInitialColor(TMP_Text hintText)
+    {
+        if (_hasStartHintInitialColor || hintText == null)
+            return;
+
+        _startHintInitialColor = hintText.color;
+        _hasStartHintInitialColor = true;
+    }
+
+    void RestoreStartHintInitialColor()
+    {
+        var hintText = GetHintText();
+        if (!_hasStartHintInitialColor || hintText == null)
+            return;
+
+        hintText.color = _startHintInitialColor;
     }
 
     float GetRoomIdBarTransitionSeconds() => GetCmykShapePhaseSeconds() + GetCmykHeightPhaseSeconds();
