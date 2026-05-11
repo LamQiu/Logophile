@@ -45,6 +45,8 @@ public class RoundManager : NetworkBehaviour
     bool _startedFromLobbyReadyFlow;
     bool _useMainUiLobbyFlow;
     readonly HashSet<ulong> _promptShowcaseFinishedClients = new HashSet<ulong>();
+    /// <summary>True until the first post-lobby PromptShowcase completes; only that transition needs <see cref="EnterNextRound"/> here — after resolution, <see cref="EndResolutionPhase"/> already advanced the round.</summary>
+    bool _pendingEnterNextRoundAfterLobbyPromptShowcase;
     private bool _startResolute;
 
     private readonly List<ulong> m_submittedAnswerClients = new List<ulong>();
@@ -102,6 +104,7 @@ public class RoundManager : NetworkBehaviour
         _startedFromLobbyReadyFlow = false;
         _useMainUiLobbyFlow = false;
         _promptShowcaseFinishedClients.Clear();
+        _pendingEnterNextRoundAfterLobbyPromptShowcase = false;
         _startResolute = false;
         m_bannedLettersText = "";
         UIManager.Instance.MarkBannedLetters("");
@@ -517,6 +520,12 @@ public class RoundManager : NetworkBehaviour
         }
     }
 
+    /// <summary>Single-client debug (<see cref="GameplayTestManager.SkipBothPlayerReady"/>) uses 1; normal matches require both players.</summary>
+    private static int MainUiClientSyncThreshold()
+    {
+        return GameplayTestManager.Instance != null && GameplayTestManager.Instance.SkipBothPlayerReady ? 1 : 2;
+    }
+
     /// <summary>
     /// Server-only: marks the match started, generates the first prompt, but does NOT start the round timer.
     /// Round timer begins when both clients notify they've entered Gameplay UI (see <see cref="NotifyGameplayUiEnteredServerRpc"/>).
@@ -545,6 +554,7 @@ public class RoundManager : NetworkBehaviour
 
         GeneratePrompt();
         _promptGenerated = true;
+        _pendingEnterNextRoundAfterLobbyPromptShowcase = true;
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
@@ -555,9 +565,16 @@ public class RoundManager : NetworkBehaviour
         if (!_useMainUiLobbyFlow) return;
 
         _promptShowcaseFinishedClients.Add(clientId);
-        if (_promptShowcaseFinishedClients.Count >= 2)
+        int threshold = MainUiClientSyncThreshold();
+        if (_promptShowcaseFinishedClients.Count < threshold)
+            return;
+
+        _promptShowcaseFinishedClients.Clear();
+
+        // First round after lobby: BeginMatchFromLobbyServer never calls EnterNextRound; EndResolutionPhase already does for later rounds.
+        if (_pendingEnterNextRoundAfterLobbyPromptShowcase)
         {
-            _promptShowcaseFinishedClients.Clear();
+            _pendingEnterNextRoundAfterLobbyPromptShowcase = false;
             EnterNextRound();
         }
     }
@@ -571,10 +588,8 @@ public class RoundManager : NetworkBehaviour
         if (_roundTimerStarted) return;
 
         _gameplayUiEnteredClients.Add(clientId);
-        if (_gameplayUiEnteredClients.Count >= 2)
-        {
+        if (_gameplayUiEnteredClients.Count >= MainUiClientSyncThreshold())
             _roundTimerStarted = true;
-        }
     }
 
     [Rpc(SendTo.ClientsAndHost)]

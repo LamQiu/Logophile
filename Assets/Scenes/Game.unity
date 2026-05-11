@@ -606,7 +606,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 83572946648747799, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 83572946648747799, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -626,7 +626,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 558224977667430681, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 558224977667430681, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -646,7 +646,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 630894661032700006, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 630894661032700006, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -694,7 +694,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4023635840301161914, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 4023635840301161914, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -714,7 +714,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4544035455919362224, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 4544035455919362224, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -742,7 +742,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5317104851230380949, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 5317104851230380949, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -762,7 +762,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5885717686027208499, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.x
-      value: 920.8499
+      value: 920.84985
       objectReference: {fileID: 0}
     - target: {fileID: 5885717686027208499, guid: 16d508ea3858f38459b849b68d5b6514, type: 3}
       propertyPath: m_AnchoredPosition.y
@@ -4637,6 +4637,10 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 1523783875228293159, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
+      propertyPath: m_fontSize
+      value: 75
+      objectReference: {fileID: 0}
     - target: {fileID: 1612958226760977773, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
       propertyPath: m_AnchorMax.y
       value: 0
@@ -5858,6 +5862,22 @@ PrefabInstance:
       propertyPath: IsNotToBanLetterIcon
       value: 
       objectReference: {fileID: 1055715546}
+    - target: {fileID: 6314156370809900027, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: m_bannedLetterInputTint.a
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314156370809900027, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: m_bannedLetterInputTint.b
+      value: 0.54509807
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314156370809900027, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: m_bannedLetterInputTint.g
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6314156370809900027, guid: c66087299efbc417088a621238896aa5, type: 3}
+      propertyPath: m_bannedLetterInputTint.r
+      value: 0.92156863
+      objectReference: {fileID: 0}
     - target: {fileID: 7536887141762829346, guid: c66087299efbc417088a621238896aa5, type: 3}
       propertyPath: m_Name
       value: Managers

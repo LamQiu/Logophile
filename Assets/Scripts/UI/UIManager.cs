@@ -28,6 +28,13 @@ namespace UI
         [SerializeField] private bool m_useMainUIForGameplay;
         [SerializeField] private MainUIController m_mainUI;
 
+        [Header("Answer input (banned letters)")]
+        [Tooltip("Rich-text color for characters that match a banned letter (see GetTextWithTransparentColor). Default matches former #A59D98AA.")]
+        [SerializeField] Color m_bannedLetterInputTint = new Color32(0xA5, 0x9D, 0x98, 0xAA);
+
+        /// <summary>Legacy GameScreen only: incremented each time <see cref="GameScreenUI"/> is shown this lobby session; first opening hides banned-letter line (mirrors Main UI showcase rule).</summary>
+        int m_legacyGameScreenOpenCount;
+
         public GameObject IsNotToBanLetterIcon;
 
         [Header("Main menu text commands (MainMenuUI command field)")]
@@ -149,6 +156,7 @@ namespace UI
 
         public void EnterWaitingScreen(string roomName, string connectionCode)
         {
+            m_legacyGameScreenOpenCount = 0;
             ConnectionScreenUI.Hide();
             WaitingScreenUI.Show(roomName, connectionCode);
         }
@@ -266,6 +274,7 @@ namespace UI
             {
                 if (m_useMainUIForGameplay && m_mainUI == null)
                     Debug.LogWarning("UIManager: m_useMainUIForGameplay is on but m_mainUI is not assigned; using legacy GameScreenUI.");
+                m_legacyGameScreenOpenCount++;
                 GameScreenUI.Show();
                 GameScreenUI.ClearWordInputField();
                 if (AudioManager.Instance != null)
@@ -565,6 +574,21 @@ namespace UI
 
         public void UpdateBannedLettersText(string invalidLetters, bool isHide = false)
         {
+            // Main UI owns banned display on MainUIController — GameScreen stays inactive but RPCs still hit this path; never mirror onto legacy TMP (avoids stale line during first Showcase / before Gameplay).
+            if (UsesMainUiGameplayFlow)
+            {
+                if (GameScreenUI != null)
+                    GameScreenUI.UpdateInvalidLettersText("", true);
+                return;
+            }
+
+            // First legacy GameScreen session this match: keep banned-letter label hidden (Main UI hides via MainUIController.SetSharedPromptVisibleForGameplay).
+            if (m_legacyGameScreenOpenCount == 1 && !isHide)
+            {
+                GameScreenUI.UpdateInvalidLettersText("", true);
+                return;
+            }
+
             GameScreenUI.UpdateInvalidLettersText(invalidLetters, isHide);
         }
         
@@ -661,7 +685,9 @@ namespace UI
         public string GetTextWithTransparentColor(string text)
         {
             if (text == null) return null;
-            
+
+            var tintHex = ColorUtility.ToHtmlStringRGBA(m_bannedLetterInputTint);
+
             string result = "";
             for (int i = 0; i < text.Length; i++)
             {
@@ -670,7 +696,7 @@ namespace UI
                     c != ' ' &&
                     m_bannedLetters.ToLower().Contains(char.ToLower(c)))
                 {
-                    result += $"<color=#A59D98AA>{c}</color>";
+                    result += $"<color=#{tintHex}>{c}</color>";
                 }
                 else
                 {
