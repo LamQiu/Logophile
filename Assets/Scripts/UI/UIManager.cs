@@ -554,8 +554,8 @@ namespace UI
             {
                 GameScreenUI.Hide();
                 ResolutionScreenUI.Hide();
+                m_mainUI.SetGameEndText(winText);
                 m_mainUI.TransitionToGameEnd();
-                UpdateWinText(winText);
                 return;
             }
 

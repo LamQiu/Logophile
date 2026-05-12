@@ -373,6 +373,9 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Vector2 _roundResultScoreTextOffsetFromBarEnd = new Vector2(13f, 0f);
     [SerializeField] float _roundResultContentStagger = 0.05f;
 
+    [Header("Game End Elements")]
+    [SerializeField] string _gameEndTitle = "you win";
+
     [Header("Design Calibration Overlay")]
     [SerializeField] bool _showPromptCalibrationOverlay;
     [SerializeField] bool _showExistingDesignReferenceImages = true;
@@ -816,7 +819,7 @@ public class MainUIController : MonoBehaviour
 
         // Tutorial title typewriter + press space fade, sequenced via coroutine
         if (_tutorialTitleTypewriter != null) _tutorialTitleTypewriter.Hide();
-        if (_pressSpaceGroup != null) _pressSpaceGroup.alpha = 0f;
+        ConfigureTutorialPressSpaceHint(0f);
         StartCoroutine(TutorialRevealRoutine());
 
         if (UI.UIManager.Instance != null)
@@ -1831,7 +1834,84 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Game End")]
     public void TransitionToGameEnd()
     {
+        if (_currentState == MainUIState.RoundResult)
+        {
+            TransitionFromRoundResultToGameEnd();
+            return;
+        }
+
         TransitionToConfiguredState(MainUIState.GameEnd);
+    }
+
+    void TransitionFromRoundResultToGameEnd()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        EnsureRoundResultElementsView();
+
+        if (_roundResultElementsGroup != null)
+        {
+            _roundResultElementsGroup.alpha = 1f;
+            _roundResultElementsGroup.interactable = false;
+            _roundResultElementsGroup.blocksRaycasts = false;
+        }
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            if (stripeGroup.transform is RectTransform stripeRect)
+                stripeRect.SetAsLastSibling();
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+        ConfigureGameEndWinnerText(0f);
+        ConfigureGameEndRestartHint(0f);
+
+        var seq = DOTween.Sequence().SetId(this);
+        var fadeSeq = DOTween.Sequence().SetId(this);
+        AddRoundResultFadeOutTween(fadeSeq, _promptSharedGroup);
+        AddRoundResultFadeOutTween(fadeSeq, _waitingP1Group);
+        AddRoundResultFadeOutTween(fadeSeq, _waitingP2Group);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP1WordText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP2WordText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP1ScoreText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP2ScoreText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP1ScoreBar != null ? _roundResultP1ScoreBar.GetComponent<Graphic>() : null);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null);
+        AddRoundResultFadeOutDeathLineTween(fadeSeq);
+        seq.Append(fadeSeq);
+
+        AddGameEndStripeBrushTween(seq);
+        if (_roundResultPanel != null)
+        {
+            var panelRect = _roundResultPanel.rectTransform;
+            seq.Join(panelRect.DOAnchorPos(GetGameEndBlackBarPosition(), _roundResultStripeRevealDuration).SetEase(_ease));
+            seq.Join(panelRect.DOSizeDelta(GetGameEndBlackBarSize(), _roundResultStripeRevealDuration).SetEase(_ease));
+        }
+        if (_roundResultDeathLabelText != null)
+            seq.Join(_roundResultDeathLabelText.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+        if (_pressSpaceGroup != null)
+            seq.Join(_pressSpaceGroup.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+
+        seq.OnComplete(() =>
+        {
+            ConfigureGameEndWinnerText(1f);
+            ConfigureGameEndRestartHint(1f);
+            ConfigureGameEndStripes();
+            SetStateVisibilityImmediate(MainUIState.GameEnd);
+        });
+
+        _currentState = MainUIState.GameEnd;
+    }
+
+    public void SetGameEndText(string text)
+    {
+        if (!string.IsNullOrWhiteSpace(text))
+            _gameEndTitle = text;
+
+        if (_roundResultDeathLabelText != null)
+            _roundResultDeathLabelText.text = _gameEndTitle;
     }
 
     void TransitionToConfiguredState(MainUIState targetState)
@@ -2970,6 +3050,27 @@ public class MainUIController : MonoBehaviour
             seq.AppendInterval(_roundResultContentStagger);
     }
 
+    void AddRoundResultFadeOutTween(Sequence seq, TMP_Text text)
+    {
+        if (seq == null || text == null) return;
+
+        seq.Join(text.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+    }
+
+    void AddRoundResultFadeOutTween(Sequence seq, Graphic graphic)
+    {
+        if (seq == null || graphic == null) return;
+
+        seq.Join(graphic.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+    }
+
+    void AddRoundResultFadeOutTween(Sequence seq, CanvasGroup group)
+    {
+        if (seq == null || group == null) return;
+
+        seq.Join(group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+    }
+
     void AddRoundResultDeathLineFadeTween(Sequence seq)
     {
         if (seq == null || _roundResultDeathLineGroup == null) return;
@@ -2984,6 +3085,18 @@ public class MainUIController : MonoBehaviour
         seq.Append(lineSeq);
         if (_roundResultContentStagger > 0f)
             seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void AddRoundResultFadeOutDeathLineTween(Sequence seq)
+    {
+        if (seq == null || _roundResultDeathLineGroup == null) return;
+
+        for (var i = 0; i < _roundResultDeathLineGroup.childCount; i++)
+        {
+            var graphic = _roundResultDeathLineGroup.GetChild(i).GetComponent<Graphic>();
+            if (graphic != null)
+                seq.Join(graphic.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        }
     }
 
     void ConfigureRoundResultElements()
@@ -3004,6 +3117,61 @@ public class MainUIController : MonoBehaviour
         SetRoundResultSiblingOrder();
     }
 
+    void ConfigureGameEndWinnerText(float alpha)
+    {
+        if (_roundResultDeathLabelText == null) return;
+
+        _roundResultDeathLabelText.text = _gameEndTitle;
+        _roundResultDeathLabelText.color = _promptInkColor;
+        _roundResultDeathLabelText.fontSize = 170f;
+        _roundResultDeathLabelText.alignment = TextAlignmentOptions.Center;
+        ConfigureRect(_roundResultDeathLabelText.rectTransform, GetGameEndTitlePosition(), new Vector2(1600f, 220f), new Vector2(0.5f, 0.5f));
+        _roundResultDeathLabelText.alpha = alpha;
+        _roundResultDeathLabelText.transform.SetAsLastSibling();
+    }
+
+    void ConfigureGameEndRestartHint(float alpha)
+    {
+        var text = GetPressSpaceText();
+        if (text == null) return;
+
+        text.text = "press space to restart";
+        text.color = _promptInkColor;
+        text.fontSize = 52f;
+        text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
+        ConfigureRect(text.rectTransform, GetGameEndRestartHintPosition(), new Vector2(900f, 70f), new Vector2(0.5f, 0.5f));
+        if (_pressSpaceGroup != null)
+        {
+            _pressSpaceGroup.alpha = alpha;
+            _pressSpaceGroup.interactable = false;
+            _pressSpaceGroup.blocksRaycasts = false;
+            _pressSpaceGroup.transform.SetAsLastSibling();
+        }
+    }
+
+    void ConfigureTutorialPressSpaceHint(float alpha)
+    {
+        var text = GetPressSpaceText();
+        if (text == null) return;
+
+        text.text = "press space to continue";
+        text.fontSize = 52.5f;
+        text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
+        ConfigureRect(text.rectTransform, new Vector2(23f, -292.6615f), new Vector2(644.2111f, 62.6421f), new Vector2(0.5f, 0.5f));
+        if (_pressSpaceGroup != null)
+        {
+            _pressSpaceGroup.alpha = alpha;
+            _pressSpaceGroup.interactable = false;
+            _pressSpaceGroup.blocksRaycasts = false;
+        }
+    }
+
+    TMP_Text GetPressSpaceText() => _pressSpaceGroup != null ? _pressSpaceGroup.GetComponent<TMP_Text>() : null;
+
     void ConfigureRoundResultStripes()
     {
         if (_decorativeLines == null || _decorativeLines.Length < 3) return;
@@ -3018,6 +3186,43 @@ public class MainUIController : MonoBehaviour
             stripeGroup.interactable = false;
             stripeGroup.blocksRaycasts = false;
         }
+    }
+
+    void ConfigureGameEndStripes()
+    {
+        if (_decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        ConfigureRoundResultStripe(_decorativeLines[0]?.rect, GetGameEndStripePosition(0), GetRoundResultStripeColor(0));
+        ConfigureRoundResultStripe(_decorativeLines[1]?.rect, GetGameEndStripePosition(1), GetRoundResultStripeColor(1));
+        ConfigureRoundResultStripe(_decorativeLines[2]?.rect, GetGameEndStripePosition(2), GetRoundResultStripeColor(2));
+
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            if (stripeGroup.transform is RectTransform stripeRect)
+                stripeRect.SetAsLastSibling();
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+    }
+
+    void AddGameEndStripeBrushTween(Sequence seq)
+    {
+        if (seq == null || _decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        var stripeSeq = DOTween.Sequence().SetId(this);
+        AddGameEndStripeMoveTween(stripeSeq, _decorativeLines[0]?.rect, GetGameEndStripePosition(0));
+        AddGameEndStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetGameEndStripePosition(1));
+        AddGameEndStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetGameEndStripePosition(2));
+        seq.Append(stripeSeq);
+    }
+
+    void AddGameEndStripeMoveTween(Sequence stripeSeq, RectTransform rect, Vector2 targetPosition)
+    {
+        if (stripeSeq == null || rect == null) return;
+
+        stripeSeq.Join(rect.DOAnchorPos(targetPosition, _roundResultStripeRevealDuration).SetEase(_ease));
     }
 
     void ConfigureRoundResultStripe(RectTransform rect, Vector2 position, Color color)
@@ -3337,6 +3542,94 @@ public class MainUIController : MonoBehaviour
     }
     Vector2 GetRoundResultPanelPosition() => new Vector2(0f, -52f);
     Vector2 GetRoundResultPanelSize() => new Vector2(1800f, 856f);
+    Vector2 GetGameEndTitlePosition() => new Vector2(0f, 80f);
+    Vector2 GetGameEndRestartHintPosition() => new Vector2(0f, -210f);
+    Vector2 GetGameEndBlackBarPosition() => GetGameEndBlackBarCenterInPanelSpace();
+    Vector2 GetGameEndBlackBarSize() => new Vector2(GetGameEndStripeWidthInPanelSpace(), GetStandardStripeSize().y);
+    float GetGameEndStripeBottomCenterY() => GetGameEndBlackBarCenterYInStripeSpace() + GetStandardStripeSize().y + StandardUiGap;
+    Vector2 GetGameEndBlackBarCenterInPanelSpace()
+    {
+        var stripe = GetGameEndReferenceStripe();
+        var panelParent = GetRoundResultPanelParent();
+        if (stripe == null || stripe.parent == null || panelParent == null)
+            return GetGameEndBlackBarPositionFallback();
+
+        var blackBarCenter = GetGameEndBlackBarCenterInStripeSpace();
+        var worldCenter = stripe.parent.TransformPoint(blackBarCenter);
+        return panelParent.InverseTransformPoint(worldCenter);
+    }
+
+    Vector2 GetGameEndBlackBarCenterInStripeSpace() => new Vector2(0f, GetGameEndBlackBarCenterYInStripeSpace());
+
+    float GetGameEndBlackBarCenterYInStripeSpace()
+    {
+        var stripeHeight = GetStandardStripeSize().y;
+        var stripeParent = GetGameEndReferenceStripe()?.parent as RectTransform;
+        var bottomY = -GetDesignCanvasSize().y * 0.5f;
+        return bottomY + GetGameEndPageMargin(stripeParent) + stripeHeight * 0.5f;
+    }
+
+    float GetGameEndPageMargin(RectTransform stripeParent)
+    {
+        var parentWidth = GetDesignCanvasSize().x;
+        return Mathf.Max(0f, (parentWidth - GetStandardStripeSize().x) * 0.5f);
+    }
+
+    Vector2 GetDesignCanvasSize()
+    {
+        var width = _lockedResolution.x > 0 ? _lockedResolution.x : 1920;
+        var height = _lockedResolution.y > 0 ? _lockedResolution.y : 1080;
+        return new Vector2(width, height);
+    }
+
+    float GetGameEndStripeWidthInPanelSpace()
+    {
+        var stripe = GetGameEndReferenceStripe();
+        var panelParent = GetRoundResultPanelParent();
+        if (stripe == null || stripe.parent == null || panelParent == null)
+            return GetStandardStripeSize().x;
+
+        var stripeSize = GetStandardStripeSize();
+        var stripeCenter = GetGameEndStripePosition(0);
+        var worldLeft = stripe.parent.TransformPoint(stripeCenter + new Vector2(-stripeSize.x * 0.5f, 0f));
+        var worldRight = stripe.parent.TransformPoint(stripeCenter + new Vector2(stripeSize.x * 0.5f, 0f));
+        var localLeft = panelParent.InverseTransformPoint(worldLeft);
+        var localRight = panelParent.InverseTransformPoint(worldRight);
+        return Mathf.Abs(localRight.x - localLeft.x);
+    }
+
+    RectTransform GetGameEndReferenceStripe()
+    {
+        if (_decorativeLines == null) return null;
+        foreach (var line in _decorativeLines)
+        {
+            if (line?.rect != null)
+                return line.rect;
+        }
+        return null;
+    }
+
+    Transform GetRoundResultPanelParent()
+    {
+        if (_roundResultPanel != null && _roundResultPanel.rectTransform != null)
+            return _roundResultPanel.rectTransform.parent;
+        return _roundResultElementsGroupRect != null ? _roundResultElementsGroupRect : transform;
+    }
+
+    Vector2 GetGameEndStripePosition(int index)
+    {
+        var clampedIndex = Mathf.Clamp(index, 0, 2);
+        var stripeHeight = GetStandardStripeSize().y;
+        var bottomStripeCenterY = GetGameEndStripeBottomCenterY();
+        var centerStep = stripeHeight + StandardUiGap;
+        return new Vector2(0f, bottomStripeCenterY + clampedIndex * centerStep);
+    }
+
+    Vector2 GetGameEndBlackBarPositionFallback()
+    {
+        return GetGameEndBlackBarCenterInStripeSpace();
+    }
+
     Vector2 GetRoundResultStripePosition(int index)
     {
         var clampedIndex = Mathf.Clamp(index, 0, 2);
@@ -4957,6 +5250,13 @@ public class MainUIController : MonoBehaviour
             }
         }
 
+        if (state == MainUIState.GameEnd)
+        {
+            AddUniqueGroup(result, _roundResultElementsGroup);
+            AddUniqueGroup(result, GetDecorativeLineStateGroup());
+            AddUniqueGroup(result, _pressSpaceGroup);
+        }
+
         return result.ToArray();
     }
 
@@ -4973,8 +5273,8 @@ public class MainUIController : MonoBehaviour
 
         foreach (var cg in new[]
                  {
-                     _promptSharedGroup, _gameplayElementsGroup, _roundResultElementsGroup,
-                     _tutorialTitleGroup, _pressSpaceGroup, _roomIdTitleGroup, _roomIdHintGroup,
+                      _promptSharedGroup, _gameplayElementsGroup, _roundResultElementsGroup,
+                      _tutorialTitleGroup, _pressSpaceGroup, _roomIdTitleGroup, _roomIdHintGroup,
                      _waitingTitleGroup, _waitingRoomIdGroup, _waitingHintGroup, _waitingP1Group, _waitingP2Group,
                      _inputFieldContentGroup
                  })
@@ -5182,6 +5482,10 @@ public class MainUIController : MonoBehaviour
                 EnsurePromptSharedView();
                 EnsureRoundResultElementsView();
                 break;
+            case MainUIState.GameEnd:
+                EnsureRoundResultElementsView();
+                ConfigureGameEndRestartHint(1f);
+                break;
         }
     }
 
@@ -5204,6 +5508,12 @@ public class MainUIController : MonoBehaviour
                 SetRoundResultPlayerIconsVisible();
                 break;
             case MainUIState.GameEnd:
+                EnsureRoundResultElementsView();
+                ConfigureGameEndWinnerText(1f);
+                ConfigureGameEndRestartHint(1f);
+                if (_roundResultPanel != null)
+                    ConfigureImageRect(_roundResultPanel, GetGameEndBlackBarPosition(), GetGameEndBlackBarSize(), _promptInkColor);
+                ConfigureGameEndStripes();
                 // RoundResult shares _promptSharedGroup with PromptShowcase; fade-only transitions can
                 // briefly read as the showcase layer. Hide it immediately before FadeStateDifference.
                 SuppressSharedPromptLayerForGameEndTransition();
@@ -5327,6 +5637,9 @@ public class MainUIController : MonoBehaviour
         changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, GetDecorativeLineStateGroup());
         changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _waitingP1Group);
         changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _waitingP2Group);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.GameEnd, _roundResultElementsGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.GameEnd, GetDecorativeLineStateGroup());
+        changed |= AddVisibleGroupToSerializedState(MainUIState.GameEnd, _pressSpaceGroup);
 
         return changed;
     }

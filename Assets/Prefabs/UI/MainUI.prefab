@@ -1337,8 +1337,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -43.42279, y: -303.4}
-  m_SizeDelta: {x: 1715.544, y: 20.2059}
+  m_AnchoredPosition: {x: 1.0183716, y: -303.4}
+  m_SizeDelta: {x: 1800.3005, y: 20.2059}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &3904834810310255227
 CanvasRenderer:
@@ -4287,6 +4287,9 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   _skew: -124
+  _snapNearFortyFiveDegrees: 1
+  _snapTolerance: 6
+  _cornerTrim: 0
 --- !u!114 &6006189922086417000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4341,8 +4344,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -20.1286, y: -338.5}
-  m_SizeDelta: {x: 1762.1321, y: 20.2059}
+  m_AnchoredPosition: {x: 1.0183716, y: -338.5}
+  m_SizeDelta: {x: 1800.3005, y: 20.2059}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1688462649683575273
 CanvasRenderer:
@@ -5534,7 +5537,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 1.0183716, y: -481.60284}
+  m_AnchoredPosition: {x: 0, y: -481.60284}
   m_SizeDelta: {x: 1800.3005, y: 120.4148}
   m_Pivot: {x: 0.5, y: 0}
 --- !u!222 &1625710167201872758
@@ -5905,6 +5908,9 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   _skew: -124
+  _snapNearFortyFiveDegrees: 1
+  _snapTolerance: 6
+  _cornerTrim: 0
 --- !u!114 &1469945878336060103
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7094,7 +7100,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 3, y: -1}
+  m_AnchoredPosition: {x: 0, y: -1}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!225 &847931742408252213
@@ -7176,6 +7182,9 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   _skew: -124
+  _snapNearFortyFiveDegrees: 1
+  _snapTolerance: 6
+  _cornerTrim: 0
 --- !u!114 &5900400301535782185
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7525,7 +7534,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: ''
+  m_text:
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
   m_sharedMaterial: {fileID: 2097077858174876890, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
@@ -7552,7 +7561,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 73.25
+  m_fontSize: 75
   m_fontSizeBase: 75
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -7726,8 +7735,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -62.834534, y: -269.7135}
-  m_SizeDelta: {x: 1676.731, y: 20.2059}
+  m_AnchoredPosition: {x: 1.0183716, y: -269.7135}
+  m_SizeDelta: {x: 1800.3005, y: 20.2059}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6623792047609768226
 CanvasRenderer:
@@ -7936,7 +7945,7 @@ CanvasGroup:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 5238581360989911993}
   m_Enabled: 1
-  m_Alpha: 1
+  m_Alpha: 0
   m_Interactable: 0
   m_BlocksRaycasts: 0
   m_IgnoreParentGroups: 0
@@ -8356,6 +8365,9 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   _skew: -124
+  _snapNearFortyFiveDegrees: 1
+  _snapTolerance: 6
+  _cornerTrim: 0
 --- !u!114 &3422787227316858217
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8464,6 +8476,13 @@ MonoBehaviour:
   _cmykShapePhaseRatio: 0.48
   _duration: 1.2
   _ease: 7
+  _startJoinSweepOutDuration: 0.45
+  _startJoinSweepReturnDuration: 0.35
+  _startJoinSweepExtraLeft: 24
+  _startJoinSweepEase: 10
+  _lockResolution: 1
+  _lockedResolution: {x: 1920, y: 1080}
+  _lockedFullScreenMode: 3
   _stateGroups:
   - state: 0
     visibleGroups:
@@ -8535,6 +8554,9 @@ MonoBehaviour:
     - {fileID: 178558500346766167}
     manuallyRevealedGroups: []
   _currentState: 0
+  _forceSingleLineTextOverflow: 1
+  _standardUiGap: 14
+  _playerIndicatorDownOffset: 8
   _roundResultLayoutVersion: 17
   _fadeOutDuration: 0.4
   _stateAnimations: []
@@ -8552,8 +8574,8 @@ MonoBehaviour:
     roomIdSizeDelta: {x: 1676.731, y: 20.2059}
     waitingAnchoredPos: {x: -3, y: 470}
     waitingSizeDelta: {x: 1800, y: 20}
-    initialAnchoredPos: {x: -62.834534, y: -269.7135}
-    initialSizeDelta: {x: 1676.731, y: 20.2059}
+    initialAnchoredPos: {x: 1.0183716, y: -269.7135}
+    initialSizeDelta: {x: 1800.3005, y: 20.2059}
   - rect: {fileID: 2066228306295382900}
     tutorialAnchoredPos: {x: 0, y: -402}
     tutorialSizeDelta: {x: 1800, y: 20}
@@ -8561,8 +8583,8 @@ MonoBehaviour:
     roomIdSizeDelta: {x: 1715.544, y: 20.2059}
     waitingAnchoredPos: {x: -3, y: 436}
     waitingSizeDelta: {x: 1800, y: 20}
-    initialAnchoredPos: {x: -43.42279, y: -303.4}
-    initialSizeDelta: {x: 1715.544, y: 20.2059}
+    initialAnchoredPos: {x: 1.0183716, y: -303.4}
+    initialSizeDelta: {x: 1800.3005, y: 20.2059}
   - rect: {fileID: 5408244024207325491}
     tutorialAnchoredPos: {x: 0, y: -436}
     tutorialSizeDelta: {x: 1800, y: 20}
@@ -8570,8 +8592,8 @@ MonoBehaviour:
     roomIdSizeDelta: {x: 1762.1321, y: 20.2059}
     waitingAnchoredPos: {x: -3, y: 402}
     waitingSizeDelta: {x: 1800, y: 20}
-    initialAnchoredPos: {x: -20.1286, y: -338.5}
-    initialSizeDelta: {x: 1762.1321, y: 20.2059}
+    initialAnchoredPos: {x: 1.0183716, y: -338.5}
+    initialSizeDelta: {x: 1800.3005, y: 20.2059}
   _tutorialTitleTypewriter: {fileID: 7106287541609038164}
   _tutorialTitleGroup: {fileID: 3286630559987386520}
   _pressSpaceGroup: {fileID: 5894662359776006093}
@@ -8701,6 +8723,7 @@ MonoBehaviour:
   _roundResultScoreBarHeight: 45
   _roundResultScoreTextOffsetFromBarEnd: {x: 13, y: 0}
   _roundResultContentStagger: 0.05
+  _gameEndTitle: you win
   _showPromptCalibrationOverlay: 0
   _showExistingDesignReferenceImages: 1
   _autoSelectDesignReferenceForCurrentState: 1
@@ -8718,6 +8741,7 @@ MonoBehaviour:
   _initYWidth: 100
   _initCWidth: 100
   _initSkew: -124
+  _initInputFieldAnchoredPos: {x: 0, y: 0}
   _initInputFieldSize: {x: 1800.3005, y: 120.4148}
   _initialCaptured: 1
 --- !u!1 &5686771789765501775
@@ -8863,7 +8887,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Type room id to join
+  m_text: 'Type room id to join
+
+'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
   m_sharedMaterial: {fileID: 2097077858174876890, guid: c5d23dde84a1a8b40ac506c10e4b1da7, type: 2}
@@ -11180,7 +11206,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &4422675863559284840
 RectTransform:
   m_ObjectHideFlags: 0
@@ -13356,7 +13382,7 @@ CanvasGroup:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 9200000000000000001}
   m_Enabled: 1
-  m_Alpha: 1
+  m_Alpha: 0
   m_Interactable: 0
   m_BlocksRaycasts: 0
   m_IgnoreParentGroups: 0
