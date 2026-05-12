@@ -435,9 +435,20 @@ public class MainUIController : MonoBehaviour
     {
         if (text == null || !_forceSingleLineTextOverflow)
             return;
+        if (IsInputFieldOwnedText(text))
+            return;
 
         text.textWrappingMode = TextWrappingModes.NoWrap;
         text.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    bool IsInputFieldOwnedText(TMP_Text text)
+    {
+        if (text == null || _inputField == null)
+            return false;
+
+        return ReferenceEquals(text, _inputField.textComponent)
+               || ReferenceEquals(text, _inputField.placeholder);
     }
 
 #if UNITY_EDITOR

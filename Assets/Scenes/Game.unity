@@ -4637,6 +4637,10 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 1523783875228293159, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
+      propertyPath: m_fontSize
+      value: 75
+      objectReference: {fileID: 0}
     - target: {fileID: 1612958226760977773, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
       propertyPath: m_AnchorMax.y
       value: 0
@@ -5464,6 +5468,12 @@ PrefabInstance:
     - target: {fileID: 7725858274599402116, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
       propertyPath: m_AnchoredPosition.y
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7827950814053706792, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
+      propertyPath: m_text
+      value: 'Type room id to join
+
+'
       objectReference: {fileID: 0}
     - target: {fileID: 7839905551234345023, guid: 761a6f45308b83e48b403abe9e5fa68f, type: 3}
       propertyPath: m_AnchorMax.y
