@@ -8600,7 +8600,6 @@ MonoBehaviour:
   _waitingPanelStartAnchoredPos: {x: 1.0183716, y: -481.60284}
   _waitingPanelStartSize: {x: 1800.3005, y: 120.4148}
   _waitingPanelTargetSize: {x: 1800.3005, y: 846}
-  _waitingPanelRevealAmount: 140
   _waitingPanelYOffset: 24
   _waitingPanelRevealDelay: 0.15
   _waitingPanelRevealDuration: 0.3

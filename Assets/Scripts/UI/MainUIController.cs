@@ -158,6 +158,9 @@ public class MainUIController : MonoBehaviour
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
     [SerializeField] bool _forceSingleLineTextOverflow = true;
+    [Header("Standard Spacing")]
+    [SerializeField] float _standardUiGap = 14f;
+    [SerializeField] float _playerIndicatorDownOffset = 8f;
 
     /// <summary>Lobby / flow state for the single MainUI canvas (e.g. <see cref="UIManager"/> gating main-menu commands).</summary>
     public MainUIState CurrentState => _currentState;
@@ -219,7 +222,6 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Vector2 _waitingPanelStartAnchoredPos;
     [SerializeField] Vector2 _waitingPanelStartSize;
     [SerializeField] Vector2 _waitingPanelTargetSize;
-    [SerializeField] float _waitingPanelRevealAmount = 100f;
     [SerializeField] float _waitingPanelYOffset = 24f;
     [SerializeField] float _waitingPanelRevealDelay = 0.15f;
     [SerializeField] float _waitingPanelRevealDuration = 0.3f;
@@ -391,6 +393,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _initYWidth;
     [SerializeField] float _initCWidth;
     [SerializeField] float _initSkew = 60f;
+    [SerializeField] Vector2 _initInputFieldAnchoredPos;
     [SerializeField] Vector2 _initInputFieldSize;
     [SerializeField] bool _initialCaptured;
 
@@ -408,9 +411,11 @@ public class MainUIController : MonoBehaviour
         DisableSceneOwnedGeneratedUiOrphans();
         ApplySingleLineOverflowToOwnedText();
         if (!_initialCaptured) CaptureInitialState();
+        EnsureInitialInputFieldPositionCaptured();
         SetStateVisibilityImmediate(_currentState);
         if (_currentState == MainUIState.Start)
         {
+            ApplyStartDecorativeLineLayoutImmediate();
             ApplyStartHintText();
             ApplyStartInputPlaceholderState();
         }
@@ -422,6 +427,12 @@ public class MainUIController : MonoBehaviour
             return;
 
         Screen.SetResolution(_lockedResolution.x, _lockedResolution.y, _lockedFullScreenMode);
+    }
+
+    void EnsureInitialInputFieldPositionCaptured()
+    {
+        if (_inputFieldRect != null && _initInputFieldAnchoredPos == Vector2.zero)
+            _initInputFieldAnchoredPos = _inputFieldRect.anchoredPosition;
     }
 
     void ApplySingleLineOverflowToOwnedText()
@@ -690,7 +701,11 @@ public class MainUIController : MonoBehaviour
         _initYWidth = _layoutY.preferredWidth;
         _initCWidth = _layoutC.preferredWidth;
         _initSkew = _graphicM.Skew;
-        if (_inputFieldRect != null) _initInputFieldSize = _inputFieldRect.sizeDelta;
+        if (_inputFieldRect != null)
+        {
+            _initInputFieldAnchoredPos = _inputFieldRect.anchoredPosition;
+            _initInputFieldSize = _inputFieldRect.sizeDelta;
+        }
         if (_decorativeLines != null)
         {
             foreach (var l in _decorativeLines)
@@ -1858,11 +1873,12 @@ public class MainUIController : MonoBehaviour
         // (Assumes panel pivot.y = 0 / bottom.)
         if (_waitingPanel != null)
         {
+            var revealAmount = GetWaitingPanelRevealAmount();
             var basePos = _waitingPanel.anchoredPosition;
-            var revealedPos = basePos + new Vector2(0f, _waitingPanelRevealAmount);
+            var revealedPos = basePos + new Vector2(0f, revealAmount);
             var revealedSize = new Vector2(
                 _waitingPanelTargetSize.x,
-                _waitingPanelTargetSize.y - _waitingPanelRevealAmount);
+                _waitingPanelTargetSize.y - revealAmount);
             _waitingPanel.DOAnchorPos(revealedPos, _waitingPanelRevealDuration).SetEase(_ease).SetId(this);
             _waitingPanel.DOSizeDelta(revealedSize, _waitingPanelRevealDuration).SetEase(_ease).SetId(this);
         }
@@ -2059,18 +2075,14 @@ public class MainUIController : MonoBehaviour
         _graphicK.Skew = _initSkew;
 
         if (_inputField != null) { _inputField.enabled = true; _inputField.readOnly = false; }
-        if (_inputFieldRect != null) _inputFieldRect.sizeDelta = _initInputFieldSize;
+        if (_inputFieldRect != null)
+        {
+            _inputFieldRect.anchoredPosition = _initInputFieldAnchoredPos;
+            _inputFieldRect.sizeDelta = _initInputFieldSize;
+        }
         if (_inputFieldContentGroup != null) _inputFieldContentGroup.alpha = 1f;
 
-        if (_decorativeLines != null)
-        {
-            foreach (var l in _decorativeLines)
-            {
-                if (l?.rect == null) continue;
-                l.rect.anchoredPosition = l.initialAnchoredPos;
-                l.rect.sizeDelta = l.initialSizeDelta;
-            }
-        }
+        ApplyStartDecorativeLineLayoutImmediate();
 
         SetStateVisibilityImmediate(MainUIState.Start);
 
@@ -3012,7 +3024,7 @@ public class MainUIController : MonoBehaviour
     {
         if (rect == null) return;
 
-        ConfigureRect(rect, position, new Vector2(1800f, 20f), new Vector2(0.5f, 0.5f));
+        ConfigureRect(rect, position, GetStandardStripeSize(), new Vector2(0.5f, 0.5f));
         rect.gameObject.SetActive(true);
         var graphic = rect.GetComponent<Graphic>();
         if (graphic != null)
@@ -3225,6 +3237,39 @@ public class MainUIController : MonoBehaviour
     Vector2 GetGameplayInputFieldPosition() => new Vector2(0f, -420f);
     Vector2 GetGameplayInputFieldSize() => new Vector2(1800f, 120f);
     Vector2 GetWaitingPanelStartPosition() => _waitingPanelStartAnchoredPos + new Vector2(0f, _waitingPanelYOffset);
+    void ApplyStartDecorativeLineLayoutImmediate()
+    {
+        if (_decorativeLines == null || _inputFieldRect == null)
+            return;
+
+        var inputWidth = Mathf.Max(0f, _initInputFieldSize.x);
+        if (inputWidth <= 0f)
+            inputWidth = Mathf.Max(0f, _inputFieldRect.sizeDelta.x);
+        if (inputWidth <= 0f)
+            return;
+
+        var inputLeftEdge = _initInputFieldAnchoredPos.x - inputWidth * _inputFieldRect.pivot.x;
+        foreach (var line in _decorativeLines)
+        {
+            if (line?.rect == null) continue;
+
+            var lineHeight = Mathf.Max(1f, line.initialSizeDelta.y);
+            var lineSize = new Vector2(inputWidth, lineHeight);
+            line.rect.sizeDelta = lineSize;
+            line.rect.anchoredPosition = new Vector2(
+                inputLeftEdge + lineSize.x * line.rect.pivot.x,
+                line.initialAnchoredPos.y);
+        }
+    }
+
+    float GetWaitingPanelRevealAmount()
+    {
+        var inputHeight = _inputFieldRect != null
+            ? Mathf.Max(0f, _inputFieldRect.sizeDelta.y)
+            : Mathf.Max(0f, _waitingPanelStartSize.y);
+        return Mathf.Max(0f, inputHeight + StandardUiGap - _waitingPanelYOffset);
+    }
+
     void ApplyWaitingDecorativeLineLayoutImmediate()
     {
         if (_decorativeLines == null) return;
@@ -3244,7 +3289,7 @@ public class MainUIController : MonoBehaviour
         if (line == null) return Vector2.zero;
 
         var lineHeight = Mathf.Max(1f, line.waitingSizeDelta.y);
-        var gap = GetWaitingLineGap();
+        var gap = StandardUiGap;
         var bottomLineIndex = _decorativeLines != null ? Mathf.Max(0, _decorativeLines.Length - 1) : 0;
         var stepsAboveBottom = Mathf.Max(0, bottomLineIndex - index);
         var panelPivotY = _waitingPanel != null ? _waitingPanel.pivot.y : 0f;
@@ -3253,20 +3298,7 @@ public class MainUIController : MonoBehaviour
         return new Vector2(line.waitingAnchoredPos.x, y);
     }
 
-    float GetWaitingLineGap()
-    {
-        if (_decorativeLines == null || _decorativeLines.Length < 2)
-            return 14f;
-
-        var first = _decorativeLines[0];
-        var second = _decorativeLines[1];
-        if (first == null || second == null)
-            return 14f;
-
-        var lineHeight = Mathf.Max(1f, Mathf.Max(first.waitingSizeDelta.y, second.waitingSizeDelta.y));
-        var centerGap = Mathf.Abs(first.waitingAnchoredPos.y - second.waitingAnchoredPos.y);
-        return Mathf.Max(0f, centerGap - lineHeight);
-    }
+    float StandardUiGap => Mathf.Max(0f, _standardUiGap);
     Vector2 GetGameplayP1LetterGroupPosition() => new Vector2(-760f, GetGameplayP1IconPosition().y);
     Vector2 GetGameplayP2LetterGroupPosition() => new Vector2(-760f, GetGameplayP2IconPosition().y);
     Vector2 GetRoundResultPromptTopLeftPosition() => new Vector2(105f, -185f);
@@ -3305,8 +3337,23 @@ public class MainUIController : MonoBehaviour
     }
     Vector2 GetRoundResultPanelPosition() => new Vector2(0f, -52f);
     Vector2 GetRoundResultPanelSize() => new Vector2(1800f, 856f);
-    Vector2 GetRoundResultStripePosition(int index) => new Vector2(0f, index == 0 ? 470f : index == 1 ? 436f : 402f);
-    Vector2 GetRoundResultStripeStartPosition() => new Vector2(0f, GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f - 10f);
+    Vector2 GetRoundResultStripePosition(int index)
+    {
+        var clampedIndex = Mathf.Clamp(index, 0, 2);
+        var panelTopY = GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f;
+        var stripeHeight = GetStandardStripeSize().y;
+        var bottomStripeCenterY = panelTopY + StandardUiGap + stripeHeight * 0.5f;
+        var centerStep = stripeHeight + StandardUiGap;
+        return new Vector2(0f, bottomStripeCenterY + clampedIndex * centerStep);
+    }
+
+    Vector2 GetRoundResultStripeStartPosition()
+    {
+        var panelTopY = GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f;
+        return new Vector2(0f, panelTopY + GetStandardStripeSize().y * 0.5f);
+    }
+
+    Vector2 GetStandardStripeSize() => new Vector2(1800f, 20f);
 
     void SetSharedPromptVisibleForGameplay(bool preserveGameplayInputSubmitLock = false)
     {
@@ -3842,7 +3889,7 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(0f, -132f), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, ApplyPlayerIndicatorDownOffset(new Vector2(0f, -132f)), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
@@ -3870,6 +3917,8 @@ public class MainUIController : MonoBehaviour
             ? new Vector2(altitude, sideLength)
             : new Vector2(sideLength, altitude);
     }
+
+    Vector2 ApplyPlayerIndicatorDownOffset(Vector2 position) => position + new Vector2(0f, -Mathf.Max(0f, _playerIndicatorDownOffset));
 
     Vector2 GetGameplayP1IconPosition() => new Vector2(-840f, -40f);
     Vector2 GetGameplayP2IconPosition() => new Vector2(-840f, -197.5f);
