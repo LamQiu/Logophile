@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -270,6 +271,8 @@ public class MainUIController : MonoBehaviour
     float _loadingHoldStartUnscaledTime = -1f;
     Coroutine _deferredPromptShowcaseCoroutine;
     bool _promptShowcaseFinishedNotified;
+    /// <summary>Set during <see cref="PreparePromptShowcaseStart"/> for the active Loading→Showcase tween + <see cref="SetPromptTextForReveal"/>.</summary>
+    bool _showBannedLettersInActivePromptShowcase;
 
     [Tooltip("Legacy hold value for the old resolution Loading screen; Gameplay now stays visible until the input-field wipe starts.")]
     [SerializeField] float _minLoadingHoldSecondsBeforeRoundResult = 0.15f;
@@ -409,11 +412,19 @@ public class MainUIController : MonoBehaviour
     Color _startHintInitialColor;
     bool _hasStartHintInitialColor;
 
+    /// <summary>Forces lowercase on all copy driven through Main UI (prompts, placeholders, round copy, hints).</summary>
+    static string MainUiDisplayText(string value)
+    {
+        if (value == null) return string.Empty;
+        return value.ToLowerInvariant();
+    }
+
     void Awake()
     {
         ApplyResolutionLock();
         DisableSceneOwnedGeneratedUiOrphans();
         ApplySingleLineOverflowToOwnedText();
+        ApplyLowercaseToInitialPrefabCopy();
         if (!_initialCaptured) CaptureInitialState();
         EnsureInitialInputFieldPositionCaptured();
         SetStateVisibilityImmediate(_currentState);
@@ -446,6 +457,36 @@ public class MainUIController : MonoBehaviour
 
         foreach (var text in GetComponentsInChildren<TMP_Text>(true))
             ApplySingleLineOverflow(text);
+    }
+
+    /// <summary>Lowercase serialized/prefab strings on TMP under this hierarchy (excludes the shared input field's live answer text).</summary>
+    void ApplyLowercaseToInitialPrefabCopy()
+    {
+        TMP_Text skipTypingDisplay = _inputField != null ? _inputField.textComponent : null;
+        foreach (var t in GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (t == null || t == skipTypingDisplay) continue;
+            if (SkipMainUiLowercaseForPlayerIconIdTmp(t)) continue;
+            t.text = MainUiDisplayText(t.text);
+        }
+    }
+
+    /// <summary>P1/P2 slot labels stay uppercase; prefab copy would otherwise be lowercased in <see cref="ApplyLowercaseToInitialPrefabCopy"/>.</summary>
+    static bool SkipMainUiLowercaseForPlayerIconIdTmp(TMP_Text t)
+    {
+        var s = t.text?.Trim();
+        if (!string.IsNullOrEmpty(s) &&
+            (string.Equals(s, "P1", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(s, "P2", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        for (var tr = t.transform; tr != null; tr = tr.parent)
+        {
+            if (tr.name.IndexOf("PlayerIcon", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        }
+
+        return false;
     }
 
     void ApplySingleLineOverflow(TMP_Text text)
@@ -1022,7 +1063,7 @@ public class MainUIController : MonoBehaviour
 
         var tmp = _waitingRoomIdTypewriter.GetComponent<TMP_Text>();
         if (tmp != null)
-            tmp.text = $"room id: {sessionRoomName}";
+            tmp.text = MainUiDisplayText($"room id: {sessionRoomName}");
     }
 
     [ContextMenu("Transition To Loading")]
@@ -1316,7 +1357,8 @@ public class MainUIController : MonoBehaviour
             Debug.Log("[MainUIController] TransitionFromLoadingToPromptShowcase BEGIN (killed tweens/coroutines)");
 
         EnsurePromptSharedView();
-        PreparePromptShowcaseStart();
+        var showBannedInThisShowcase = HasPromptBannedLetters();
+        PreparePromptShowcaseStart(showBannedInThisShowcase);
         if (_debugPromptFlow)
             Debug.Log($"[MainUIController] PreparePromptShowcaseStart DONE maskMainX={_promptPromptMask?.anchoredPosition.x} maskBannedX={_promptBannedMask?.anchoredPosition.x} titleAlpha={_promptTitleText?.alpha} bannedAlpha={_promptBannedText?.alpha}");
 
@@ -1334,11 +1376,13 @@ public class MainUIController : MonoBehaviour
             seq.Append(_promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
             hasEnterTween = true;
         }
-        if (_promptBannedMask != null)
+        if (_promptBannedMask != null && showBannedInThisShowcase)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
+        else if (_promptBannedMask != null)
+            _promptBannedMask.gameObject.SetActive(false);
         if (_promptTitleText != null)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptTitleText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
-        if (_promptBannedText != null)
+        if (_promptBannedText != null && showBannedInThisShowcase)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
 
         seq.AppendInterval(_promptHoldBeforeRevealSeconds);
@@ -1346,11 +1390,11 @@ public class MainUIController : MonoBehaviour
         var hasRevealTween = false;
         if (_promptPromptMask != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptBannedMask != null)
+        if (_promptBannedMask != null && showBannedInThisShowcase)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
         if (_promptTitleText != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptTitleText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptBannedText != null)
+        if (_promptBannedText != null && showBannedInThisShowcase)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
 
         seq.OnComplete(() =>
@@ -1568,7 +1612,7 @@ public class MainUIController : MonoBehaviour
         {
             _promptTitleText.alignment = TextAlignmentOptions.Left;
             _promptTitleText.color = _roundResultTextColor;
-            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.text = MainUiDisplayText(GetPromptTextWithBannedLetters(_promptText));
             SetTopLeftAnchors(_promptTitleText.rectTransform);
             _promptTitleText.alignment = TextAlignmentOptions.TopLeft;
             seq.Join(_promptTitleText.rectTransform.DOAnchorPos(GetRoundResultPromptTopLeftPosition(), _roundResultTransitionDuration).SetEase(_ease));
@@ -1582,7 +1626,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.overrideColorTags = false;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.color = _roundResultTextColor;
-            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
             SetTopLeftAnchors(_promptBannedText.rectTransform);
             _promptBannedText.alignment = TextAlignmentOptions.TopLeft;
             seq.Join(_promptBannedText.rectTransform.DOAnchorPos(GetRoundResultBannedLabelTopLeftPosition(), _roundResultTransitionDuration).SetEase(_ease));
@@ -1999,7 +2043,7 @@ public class MainUIController : MonoBehaviour
         // purely a visual element.
         if (_inputFieldPlaceholderText != null)
         {
-            _inputFieldPlaceholderText.text = _waitingPlaceholder;
+            _inputFieldPlaceholderText.text = MainUiDisplayText(_waitingPlaceholder);
             _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
         }
         if (_inputFieldContentGroup != null)
@@ -2058,7 +2102,7 @@ public class MainUIController : MonoBehaviour
     {
         if (_inputFieldPlaceholderText == null) return;
 
-        _inputFieldPlaceholderText.text = _roomIdPlaceholder;
+        _inputFieldPlaceholderText.text = MainUiDisplayText(_roomIdPlaceholder);
         _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
     }
 
@@ -2090,7 +2134,7 @@ public class MainUIController : MonoBehaviour
         if (text != null)
         {
             ApplySingleLineOverflow(text);
-            text.text = value ?? string.Empty;
+            text.text = MainUiDisplayText(value ?? string.Empty);
         }
     }
 
@@ -2515,8 +2559,10 @@ public class MainUIController : MonoBehaviour
         rect.localScale = Vector3.one;
     }
 
-    void PreparePromptShowcaseStart()
+    void PreparePromptShowcaseStart(bool? showBannedLettersInShowcase = null)
     {
+        _showBannedLettersInActivePromptShowcase = showBannedLettersInShowcase ?? HasPromptBannedLetters();
+
         EnsurePromptSharedView();
 
         if (_promptSharedGroup != null)
@@ -2533,7 +2579,7 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.richText = false;
             _promptTitleText.overrideColorTags = true;
             _promptTitleText.color = _promptMaskTitleColor;
-            _promptTitleText.text = GetPromptShowcaseMaskPhaseTitleFromCurrentRound();
+            _promptTitleText.text = MainUiDisplayText(GetPromptShowcaseMaskPhaseTitleFromCurrentRound());
             _promptTitleText.alpha = 0f;
             _promptTitleText.fontSize = 184f;
             _promptTitleText.alignment = TextAlignmentOptions.Left;
@@ -2545,7 +2591,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.richText = false;
             _promptBannedText.overrideColorTags = true;
             _promptBannedText.color = _promptMaskBannedTextColor;
-            _promptBannedText.text = _promptMaskBannedTextValue;
+            _promptBannedText.text = MainUiDisplayText(_promptMaskBannedTextValue);
             _promptBannedText.alpha = 0f;
             _promptBannedText.fontSize = 58f;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
@@ -2567,7 +2613,7 @@ public class MainUIController : MonoBehaviour
 
         if (_promptBannedMask != null)
         {
-            _promptBannedMask.gameObject.SetActive(true);
+            _promptBannedMask.gameObject.SetActive(_showBannedLettersInActivePromptShowcase);
             _promptBannedMask.anchorMin = new Vector2(0.5f, 0.5f);
             _promptBannedMask.anchorMax = new Vector2(0.5f, 0.5f);
             _promptBannedMask.pivot = new Vector2(0.5f, 0.5f);
@@ -2603,11 +2649,13 @@ public class MainUIController : MonoBehaviour
     {
         if (_debugPromptFlow)
             Debug.Log($"[MainUIController] SetPromptTextForReveal prompt='{_promptText}' banned='{_promptBannedLetters}'");
+        var showBanned = _showBannedLettersInActivePromptShowcase;
         if (_promptTitleText != null)
         {
             _promptTitleText.richText = true;
             _promptTitleText.overrideColorTags = false;
-            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            var titleSource = showBanned ? GetPromptTextWithBannedLetters(_promptText) : _promptText;
+            _promptTitleText.text = MainUiDisplayText(titleSource);
             _promptTitleText.color = _promptMaskTitleColor;
             _promptTitleText.alignment = TextAlignmentOptions.Left;
             _promptTitleText.alpha = 1f;
@@ -2616,10 +2664,10 @@ public class MainUIController : MonoBehaviour
         {
             _promptBannedText.richText = true;
             _promptBannedText.overrideColorTags = false;
-            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
             _promptBannedText.color = _promptMaskBannedTextColor;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
-            _promptBannedText.alpha = 1f;
+            _promptBannedText.alpha = showBanned ? 1f : 0f;
         }
     }
 
@@ -2720,7 +2768,7 @@ public class MainUIController : MonoBehaviour
         textRect.sizeDelta = size;
         textRect.localScale = Vector3.one;
 
-        current.text = text;
+        current.text = MainUiDisplayText(text);
         current.color = _promptInkColor;
         current.fontSize = fontSize;
         current.enableAutoSizing = false;
@@ -3326,7 +3374,7 @@ public class MainUIController : MonoBehaviour
 
         text.richText = true;
         text.overrideColorTags = false;
-        text.text = value;
+        text.text = MainUiDisplayText(value);
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = alignment;
@@ -3342,7 +3390,7 @@ public class MainUIController : MonoBehaviour
 
         text.richText = true;
         text.overrideColorTags = false;
-        text.text = value;
+        text.text = MainUiDisplayText(value);
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.TopLeft;
@@ -3358,7 +3406,7 @@ public class MainUIController : MonoBehaviour
 
         text.richText = true;
         text.overrideColorTags = false;
-        text.text = value;
+        text.text = MainUiDisplayText(value);
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.Top;
@@ -3374,7 +3422,7 @@ public class MainUIController : MonoBehaviour
 
         text.richText = true;
         text.overrideColorTags = false;
-        text.text = value;
+        text.text = MainUiDisplayText(value);
         text.color = color;
         text.fontSize = fontSize;
         text.alignment = TextAlignmentOptions.Left;
@@ -3453,7 +3501,7 @@ public class MainUIController : MonoBehaviour
         text.alignment = alignment;
         ApplySingleLineOverflow(text);
         text.color = color;
-        text.text = value;
+        text.text = MainUiDisplayText(value);
         text.alpha = 0f;
         text.rectTransform.anchoredPosition = targetPosition - new Vector2(0f, _gameplaySlideOffset);
     }
@@ -3683,7 +3731,7 @@ public class MainUIController : MonoBehaviour
         {
             _promptTitleText.alignment = TextAlignmentOptions.Left;
             _promptTitleText.color = _promptInkColor;
-            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.text = MainUiDisplayText(GetPromptTextWithBannedLetters(_promptText));
             _promptTitleText.fontSize = GetGameplayPromptFontSize();
             SetCenterLeftAnchors(_promptTitleText.rectTransform);
             _promptTitleText.rectTransform.sizeDelta = GetGameplayPromptSize();
@@ -3696,11 +3744,11 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.overrideColorTags = false;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.color = _promptInkColor;
-            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
             _promptBannedText.fontSize = GetGameplayBannedLabelFontSize();
             SetCenterLeftAnchors(_promptBannedText.rectTransform);
             _promptBannedText.rectTransform.sizeDelta = GetGameplayBannedLabelSize();
-            _promptBannedText.alpha = 1f;
+            _promptBannedText.alpha = HasPromptBannedLetters() ? 1f : 0f;
             _promptBannedText.rectTransform.anchoredPosition = GetGameplayBannedLabelPosition();
         }
 
@@ -3728,7 +3776,7 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.overrideColorTags = false;
             _promptTitleText.alignment = TextAlignmentOptions.TopLeft;
             _promptTitleText.color = _roundResultTextColor;
-            _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
+            _promptTitleText.text = MainUiDisplayText(GetPromptTextWithBannedLetters(_promptText));
             _promptTitleText.fontSize = 170f;
             _promptTitleText.alpha = 1f;
             SetTextFullyVisible(_promptTitleText);
@@ -3741,7 +3789,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.overrideColorTags = false;
             _promptBannedText.alignment = TextAlignmentOptions.TopLeft;
             _promptBannedText.color = _roundResultTextColor;
-            _promptBannedText.text = GetBannedLetterRevealText();
+            _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
             _promptBannedText.fontSize = 59f;
             _promptBannedText.alpha = 1f;
             SetTextFullyVisible(_promptBannedText);
@@ -3825,7 +3873,7 @@ public class MainUIController : MonoBehaviour
         }
         if (_inputFieldPlaceholderText != null && !preserveSubmitLock)
         {
-            _inputFieldPlaceholderText.text = _gameplayInputPlaceholder;
+            _inputFieldPlaceholderText.text = MainUiDisplayText(_gameplayInputPlaceholder);
             _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
         }
         if (_inputFieldContentGroup != null)
@@ -4288,7 +4336,7 @@ public class MainUIController : MonoBehaviour
     public void SetGameplayHintText(string hint)
     {
         if (_gameplayHintText == null) return;
-        _gameplayHintText.text = hint ?? string.Empty;
+        _gameplayHintText.text = MainUiDisplayText(hint ?? string.Empty);
     }
 
     public void SetGameplayPlayerWord(int playerIndex, string word)

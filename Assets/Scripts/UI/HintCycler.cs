@@ -64,11 +64,11 @@ public class HintCycler : MonoBehaviour
     string PickRandomHint()
     {
         if (_hints == null || _hints.Length == 0) return "";
-        if (_hints.Length == 1) return _hints[0];
+        if (_hints.Length == 1) return _hints[0].ToLowerInvariant();
 
         int idx;
         do { idx = Random.Range(0, _hints.Length); } while (idx == _lastIndex);
         _lastIndex = idx;
-        return _hints[idx];
+        return _hints[idx].ToLowerInvariant();
     }
 }

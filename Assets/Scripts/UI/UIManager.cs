@@ -28,6 +28,10 @@ namespace UI
         [SerializeField] private bool m_useMainUIForGameplay;
         [SerializeField] private MainUIController m_mainUI;
 
+        [Header("Answer input (banned letters)")]
+        [Tooltip("Rich-text color for characters that match a banned letter (see GetTextWithTransparentColor). Default matches former #A59D98AA.")]
+        [SerializeField] Color m_bannedLetterInputTint = new Color32(0xA5, 0x9D, 0x98, 0xAA);
+
         public GameObject IsNotToBanLetterIcon;
 
         [Header("Main menu text commands (MainMenuUI command field)")]
@@ -565,6 +569,14 @@ namespace UI
 
         public void UpdateBannedLettersText(string invalidLetters, bool isHide = false)
         {
+            // Main UI owns banned display on MainUIController — GameScreen stays inactive but RPCs still hit this path; never mirror onto legacy TMP (avoids stale line during first Showcase / before Gameplay).
+            if (UsesMainUiGameplayFlow)
+            {
+                if (GameScreenUI != null)
+                    GameScreenUI.UpdateInvalidLettersText("", true);
+                return;
+            }
+
             GameScreenUI.UpdateInvalidLettersText(invalidLetters, isHide);
         }
         
@@ -661,7 +673,9 @@ namespace UI
         public string GetTextWithTransparentColor(string text)
         {
             if (text == null) return null;
-            
+
+            var tintHex = ColorUtility.ToHtmlStringRGBA(m_bannedLetterInputTint);
+
             string result = "";
             for (int i = 0; i < text.Length; i++)
             {
@@ -670,7 +684,7 @@ namespace UI
                     c != ' ' &&
                     m_bannedLetters.ToLower().Contains(char.ToLower(c)))
                 {
-                    result += $"<color=#A59D98AA>{c}</color>";
+                    result += $"<color=#{tintHex}>{c}</color>";
                 }
                 else
                 {
