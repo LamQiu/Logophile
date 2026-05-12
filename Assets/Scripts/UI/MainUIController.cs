@@ -260,7 +260,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] string _promptText = "start with \"a\"";
     [SerializeField] string _promptMaskText = "start with";
     [SerializeField] string _promptMaskBannedTextValue = "banned letter";
-    [SerializeField] string _promptBannedLetters = "";
+    [SerializeField] string _promptBannedLetters = "i";
     bool _awaitingPromptFromServerWhileLoading;
     bool _promptReceivedFromServer;
     bool _promptShowcaseTransitionStarted;
@@ -1011,12 +1011,10 @@ public class MainUIController : MonoBehaviour
     {
         if (_currentState == MainUIState.Waiting && _loadingScreenRect != null && _loadingScreenGroup != null)
         {
-            HidePromptBannedElementsWhenUnavailable();
             TransitionFromWaitingToLoading();
             return;
         }
 
-        HidePromptBannedElementsWhenUnavailable();
         TransitionToConfiguredState(MainUIState.Loading);
     }
 
@@ -1095,7 +1093,6 @@ public class MainUIController : MonoBehaviour
         SetStateVisibilityImmediate(MainUIState.Loading);
         _promptShowcaseTransitionStarted = false;
         _loadingHoldStartUnscaledTime = Time.unscaledTime;
-        HidePromptBannedElementsWhenUnavailable();
 
         if (_loadingScreenRect != null && _loadingScreenGroup != null)
         {
@@ -1319,15 +1316,10 @@ public class MainUIController : MonoBehaviour
             hasEnterTween = true;
         }
         if (_promptBannedMask != null)
-        {
-            if (HasPromptBannedLetters())
-                AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
-            else
-                _promptBannedMask.gameObject.SetActive(false);
-        }
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
         if (_promptTitleText != null)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptTitleText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
-        if (_promptBannedText != null && HasPromptBannedLetters())
+        if (_promptBannedText != null)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
 
         seq.AppendInterval(_promptHoldBeforeRevealSeconds);
@@ -1335,11 +1327,11 @@ public class MainUIController : MonoBehaviour
         var hasRevealTween = false;
         if (_promptPromptMask != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptBannedMask != null && HasPromptBannedLetters())
+        if (_promptBannedMask != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
         if (_promptTitleText != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptTitleText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptBannedText != null && HasPromptBannedLetters())
+        if (_promptBannedText != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
 
         seq.OnComplete(() =>
@@ -2493,7 +2485,7 @@ public class MainUIController : MonoBehaviour
 
         if (_promptBannedMask != null)
         {
-            _promptBannedMask.gameObject.SetActive(HasPromptBannedLetters());
+            _promptBannedMask.gameObject.SetActive(true);
             _promptBannedMask.anchorMin = new Vector2(0.5f, 0.5f);
             _promptBannedMask.anchorMax = new Vector2(0.5f, 0.5f);
             _promptBannedMask.pivot = new Vector2(0.5f, 0.5f);
@@ -2545,26 +2537,15 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.text = GetBannedLetterRevealText();
             _promptBannedText.color = _promptMaskBannedTextColor;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
-            _promptBannedText.alpha = HasPromptBannedLetters() ? 1f : 0f;
+            _promptBannedText.alpha = 1f;
         }
-    }
-
-    void HidePromptBannedElementsWhenUnavailable()
-    {
-        if (HasPromptBannedLetters())
-            return;
-
-        if (_promptBannedText != null)
-            _promptBannedText.alpha = 0f;
-        if (_promptBannedMask != null)
-            _promptBannedMask.gameObject.SetActive(false);
     }
 
     public void SetPromptForShowcase(string promptText, string bannedLetters)
     {
         if (!string.IsNullOrWhiteSpace(promptText))
             _promptText = promptText;
-        _promptBannedLetters = bannedLetters ?? "";
+        _promptBannedLetters = string.IsNullOrWhiteSpace(bannedLetters) ? _promptBannedLetters : bannedLetters;
     }
 
     bool HasPromptBannedLetters()
@@ -2574,9 +2555,6 @@ public class MainUIController : MonoBehaviour
 
     string GetBannedLetterRevealText()
     {
-        if (!HasPromptBannedLetters())
-            return string.Empty;
-
         var colorHex = ColorUtility.ToHtmlStringRGB(_promptBannedLetterColor);
         var coloredLetters = $"<size=150%><color=#{colorHex}>{_promptBannedLetters}</color></size>";
         return _promptBannedLetters.Length == 1
@@ -3357,7 +3335,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.fontSize = GetGameplayBannedLabelFontSize();
             SetCenterLeftAnchors(_promptBannedText.rectTransform);
             _promptBannedText.rectTransform.sizeDelta = GetGameplayBannedLabelSize();
-            _promptBannedText.alpha = HasPromptBannedLetters() ? 1f : 0f;
+            _promptBannedText.alpha = 1f;
             _promptBannedText.rectTransform.anchoredPosition = GetGameplayBannedLabelPosition();
         }
 

@@ -8631,7 +8631,7 @@ MonoBehaviour:
   _promptText: start with "a"
   _promptMaskText: start with
   _promptMaskBannedTextValue: banned letter
-  _promptBannedLetters: ''
+  _promptBannedLetters: i
   _minLoadingHoldSecondsBeforePromptShowcase: 0.15
   _minLoadingHoldSecondsBeforeRoundResult: 0.15
   _debugSharedCommandInput: 0
