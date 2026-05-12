@@ -12,6 +12,8 @@ using UnityEngine.UI;
 
 public class MainUIController : MonoBehaviour
 {
+    const float EquilateralTriangleAltitude = 0.8660254f;
+
     const string PromptSharedGroupName = "PromptSharedGroup";
     const string DesignOverlayGroupName = "Design";
     const string PromptCalibrationOverlayName = "PromptCalibrationOverlay";
@@ -3632,12 +3634,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(-82f, 0f), new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(-82f, 0f), GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, Vector2.zero, GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -3661,12 +3663,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(-70f, 0f), GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, Vector2.zero, GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -3867,7 +3869,7 @@ public class MainUIController : MonoBehaviour
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, new Vector2(0f, 4f), new Vector2(27.0481f, 16f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, new Vector2(0f, 4f), GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Up, 27.0481f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -3881,6 +3883,14 @@ public class MainUIController : MonoBehaviour
             youText.gameObject.SetActive(showLocalIndicator);
             ConfigureRect(youText, new Vector2(1.9196f, -28f), new Vector2(71f, 48.8f), new Vector2(0.5f, 0.5f));
         }
+    }
+
+    static Vector2 GetEquilateralTriangleRectSize(TriangleGraphic.Direction direction, float sideLength)
+    {
+        var altitude = sideLength * EquilateralTriangleAltitude;
+        return direction == TriangleGraphic.Direction.Left || direction == TriangleGraphic.Direction.Right
+            ? new Vector2(altitude, sideLength)
+            : new Vector2(sideLength, altitude);
     }
 
     Vector2 GetGameplayP1IconPosition() => new Vector2(-840f, -40f);
