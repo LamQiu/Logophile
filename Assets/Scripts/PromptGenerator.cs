@@ -74,7 +74,9 @@ public class PromptGenerator : NetworkBehaviour
         var rm = FindAnyObjectByType<RoundManager>();
         if (rm != null)
         {
-            var bannedLetters = UIManager.Instance != null ? (UIManager.Instance.BannedLetters ?? "") : "";
+            var bannedLetters = !string.IsNullOrEmpty(rm.CurrentBannedLetters)
+                ? rm.CurrentBannedLetters
+                : (UIManager.Instance != null ? (UIManager.Instance.BannedLetters ?? "") : "");
             rm.UpdateMainUiPromptClientRpc(randomPrompt.ToString(), bannedLetters);
         }
     }

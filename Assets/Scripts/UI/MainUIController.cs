@@ -13,6 +13,8 @@ using UnityEngine.UI;
 
 public class MainUIController : MonoBehaviour
 {
+    const float EquilateralTriangleAltitude = 0.8660254f;
+
     const string PromptSharedGroupName = "PromptSharedGroup";
     const string DesignOverlayGroupName = "Design";
     const string PromptCalibrationOverlayName = "PromptCalibrationOverlay";
@@ -157,6 +159,9 @@ public class MainUIController : MonoBehaviour
     [SerializeField] StateCanvasGroupSet[] _stateGroups;
     [SerializeField] MainUIState _currentState = MainUIState.Start;
     [SerializeField] bool _forceSingleLineTextOverflow = true;
+    [Header("Standard Spacing")]
+    [SerializeField] float _standardUiGap = 14f;
+    [SerializeField] float _playerIndicatorDownOffset = 8f;
 
     /// <summary>Lobby / flow state for the single MainUI canvas (e.g. <see cref="UIManager"/> gating main-menu commands).</summary>
     public MainUIState CurrentState => _currentState;
@@ -218,7 +223,6 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Vector2 _waitingPanelStartAnchoredPos;
     [SerializeField] Vector2 _waitingPanelStartSize;
     [SerializeField] Vector2 _waitingPanelTargetSize;
-    [SerializeField] float _waitingPanelRevealAmount = 100f;
     [SerializeField] float _waitingPanelYOffset = 24f;
     [SerializeField] float _waitingPanelRevealDelay = 0.15f;
     [SerializeField] float _waitingPanelRevealDuration = 0.3f;
@@ -259,7 +263,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] string _promptText = "start with \"a\"";
     [SerializeField] string _promptMaskText = "start with";
     [SerializeField] string _promptMaskBannedTextValue = "banned letter";
-    [SerializeField] string _promptBannedLetters = "";
+    [SerializeField] string _promptBannedLetters = "i";
     bool _awaitingPromptFromServerWhileLoading;
     bool _promptReceivedFromServer;
     bool _promptShowcaseTransitionStarted;
@@ -267,12 +271,10 @@ public class MainUIController : MonoBehaviour
     float _loadingHoldStartUnscaledTime = -1f;
     Coroutine _deferredPromptShowcaseCoroutine;
     bool _promptShowcaseFinishedNotified;
-    /// <summary>Increments each time we animate Loading → PromptShowcase (match flow). First count is the opening showcase — banned letters stay hidden there.</summary>
-    int _loadingToPromptShowcaseCount;
     /// <summary>Set during <see cref="PreparePromptShowcaseStart"/> for the active Loading→Showcase tween + <see cref="SetPromptTextForReveal"/>.</summary>
     bool _showBannedLettersInActivePromptShowcase;
 
-    [Tooltip("Minimum time on the Loading screen after resolution before Round Result (mirrors prompt loading hold).")]
+    [Tooltip("Legacy hold value for the old resolution Loading screen; Gameplay now stays visible until the input-field wipe starts.")]
     [SerializeField] float _minLoadingHoldSecondsBeforeRoundResult = 0.15f;
     const float k_resolutionHpSyncTimeoutSeconds = 5f;
     bool _awaitingResolutionScoresWhileLoading;
@@ -367,12 +369,16 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _roundResultPanelMorphDuration = 0.55f;
     [SerializeField] float _roundResultStripeRevealDuration = 0.35f;
     [SerializeField] float _roundResultContentFadeDuration = 0.35f;
+    [SerializeField] float _roundResultPromptCharactersPerSecond = 30f;
     [Tooltip("Bar width when HP equals GameManager.MaxPlayerHp (P1/P2 share the same scale).")]
     [SerializeField] float _roundResultScoreBarFullWidth = 217f;
     [SerializeField] float _roundResultScoreBarHeight = 45f;
     [Tooltip("Round result HP label: left edge X = score bar right + x; center Y = score bar center + y (same space as bar anchoredPosition).")]
     [SerializeField] Vector2 _roundResultScoreTextOffsetFromBarEnd = new Vector2(13f, 0f);
     [SerializeField] float _roundResultContentStagger = 0.05f;
+
+    [Header("Game End Elements")]
+    [SerializeField] string _gameEndTitle = "you win";
 
     [Header("Design Calibration Overlay")]
     [SerializeField] bool _showPromptCalibrationOverlay;
@@ -394,6 +400,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _initYWidth;
     [SerializeField] float _initCWidth;
     [SerializeField] float _initSkew = 60f;
+    [SerializeField] Vector2 _initInputFieldAnchoredPos;
     [SerializeField] Vector2 _initInputFieldSize;
     [SerializeField] bool _initialCaptured;
 
@@ -419,9 +426,11 @@ public class MainUIController : MonoBehaviour
         ApplySingleLineOverflowToOwnedText();
         ApplyLowercaseToInitialPrefabCopy();
         if (!_initialCaptured) CaptureInitialState();
+        EnsureInitialInputFieldPositionCaptured();
         SetStateVisibilityImmediate(_currentState);
         if (_currentState == MainUIState.Start)
         {
+            ApplyStartDecorativeLineLayoutImmediate();
             ApplyStartHintText();
             ApplyStartInputPlaceholderState();
         }
@@ -433,6 +442,12 @@ public class MainUIController : MonoBehaviour
             return;
 
         Screen.SetResolution(_lockedResolution.x, _lockedResolution.y, _lockedFullScreenMode);
+    }
+
+    void EnsureInitialInputFieldPositionCaptured()
+    {
+        if (_inputFieldRect != null && _initInputFieldAnchoredPos == Vector2.zero)
+            _initInputFieldAnchoredPos = _inputFieldRect.anchoredPosition;
     }
 
     void ApplySingleLineOverflowToOwnedText()
@@ -478,9 +493,20 @@ public class MainUIController : MonoBehaviour
     {
         if (text == null || !_forceSingleLineTextOverflow)
             return;
+        if (IsInputFieldOwnedText(text))
+            return;
 
         text.textWrappingMode = TextWrappingModes.NoWrap;
         text.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    bool IsInputFieldOwnedText(TMP_Text text)
+    {
+        if (text == null || _inputField == null)
+            return false;
+
+        return ReferenceEquals(text, _inputField.textComponent)
+               || ReferenceEquals(text, _inputField.placeholder);
     }
 
 #if UNITY_EDITOR
@@ -720,7 +746,11 @@ public class MainUIController : MonoBehaviour
         _initYWidth = _layoutY.preferredWidth;
         _initCWidth = _layoutC.preferredWidth;
         _initSkew = _graphicM.Skew;
-        if (_inputFieldRect != null) _initInputFieldSize = _inputFieldRect.sizeDelta;
+        if (_inputFieldRect != null)
+        {
+            _initInputFieldAnchoredPos = _inputFieldRect.anchoredPosition;
+            _initInputFieldSize = _inputFieldRect.sizeDelta;
+        }
         if (_decorativeLines != null)
         {
             foreach (var l in _decorativeLines)
@@ -831,7 +861,7 @@ public class MainUIController : MonoBehaviour
 
         // Tutorial title typewriter + press space fade, sequenced via coroutine
         if (_tutorialTitleTypewriter != null) _tutorialTitleTypewriter.Hide();
-        if (_pressSpaceGroup != null) _pressSpaceGroup.alpha = 0f;
+        ConfigureTutorialPressSpaceHint(0f);
         StartCoroutine(TutorialRevealRoutine());
 
         if (UI.UIManager.Instance != null)
@@ -1041,12 +1071,10 @@ public class MainUIController : MonoBehaviour
     {
         if (_currentState == MainUIState.Waiting && _loadingScreenRect != null && _loadingScreenGroup != null)
         {
-            HidePromptBannedElementsWhenUnavailable();
             TransitionFromWaitingToLoading();
             return;
         }
 
-        HidePromptBannedElementsWhenUnavailable();
         TransitionToConfiguredState(MainUIState.Loading);
     }
 
@@ -1125,7 +1153,6 @@ public class MainUIController : MonoBehaviour
         SetStateVisibilityImmediate(MainUIState.Loading);
         _promptShowcaseTransitionStarted = false;
         _loadingHoldStartUnscaledTime = Time.unscaledTime;
-        HidePromptBannedElementsWhenUnavailable();
 
         if (_loadingScreenRect != null && _loadingScreenGroup != null)
         {
@@ -1330,8 +1357,7 @@ public class MainUIController : MonoBehaviour
             Debug.Log("[MainUIController] TransitionFromLoadingToPromptShowcase BEGIN (killed tweens/coroutines)");
 
         EnsurePromptSharedView();
-        _loadingToPromptShowcaseCount++;
-        var showBannedInThisShowcase = HasPromptBannedLetters() && _loadingToPromptShowcaseCount >= 2;
+        var showBannedInThisShowcase = HasPromptBannedLetters();
         PreparePromptShowcaseStart(showBannedInThisShowcase);
         if (_debugPromptFlow)
             Debug.Log($"[MainUIController] PreparePromptShowcaseStart DONE maskMainX={_promptPromptMask?.anchoredPosition.x} maskBannedX={_promptBannedMask?.anchoredPosition.x} titleAlpha={_promptTitleText?.alpha} bannedAlpha={_promptBannedText?.alpha}");
@@ -1350,13 +1376,10 @@ public class MainUIController : MonoBehaviour
             seq.Append(_promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
             hasEnterTween = true;
         }
-        if (_promptBannedMask != null)
-        {
-            if (showBannedInThisShowcase)
-                AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
-            else
-                _promptBannedMask.gameObject.SetActive(false);
-        }
+        if (_promptBannedMask != null && showBannedInThisShowcase)
+            AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX(), _promptMaskEnterDuration).SetEase(_promptMaskRevealEase));
+        else if (_promptBannedMask != null)
+            _promptBannedMask.gameObject.SetActive(false);
         if (_promptTitleText != null)
             AddPromptEnterTween(seq, ref hasEnterTween, _promptTitleText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
         if (_promptBannedText != null && showBannedInThisShowcase)
@@ -1651,7 +1674,7 @@ public class MainUIController : MonoBehaviour
     }
 
     /// <summary>
-    /// MainUI flow: after resolution damage is applied on the server, show Loading until local <see cref="Client.CurrentHp"/> matches the server snapshot, then play the Round Result entrance (same tween as direct gameplay → result).
+    /// MainUI flow: after resolution damage is applied on the server, wait until local <see cref="Client.CurrentHp"/> matches the server snapshot, then play the input-field wipe into Round Result.
     /// </summary>
     public void BeginResolutionScoreSyncThenRoundResult(string hostAnswer, string clientAnswer, int hostHpAfter, int clientHpAfter, bool hostAnswerLetterEligible, bool clientAnswerLetterEligible)
     {
@@ -1671,18 +1694,13 @@ public class MainUIController : MonoBehaviour
             _deferredPromptShowcaseCoroutine = null;
         }
 
-        var seq = DOTween.Sequence().SetId(this);
-        if (AppendFadeOutAllUiCanvasGroupsBeforeLoading(seq, _fadeOutDuration))
-            seq.OnComplete(FinishBeginResolutionScoreSyncLoadingEntry);
-        else
-            FinishBeginResolutionScoreSyncLoadingEntry();
+        BeginResolutionScoreSyncWait();
     }
 
-    void FinishBeginResolutionScoreSyncLoadingEntry()
+    void BeginResolutionScoreSyncWait()
     {
-        ApplyMainLoadingOverlayVisualStateImmediate();
-
         _awaitingResolutionScoresWhileLoading = true;
+        _loadingHoldStartUnscaledTime = -1f;
         _deferredResolutionRoundResultCoroutine = StartCoroutine(WaitResolutionHpSyncAndEnterRoundResultRoutine());
     }
 
@@ -1700,11 +1718,6 @@ public class MainUIController : MonoBehaviour
 
         if (!_awaitingResolutionScoresWhileLoading)
             yield break;
-
-        var elapsed = _loadingHoldStartUnscaledTime < 0f ? 999f : (Time.unscaledTime - _loadingHoldStartUnscaledTime);
-        var remainingMin = Mathf.Max(0f, _minLoadingHoldSecondsBeforeRoundResult - elapsed);
-        if (remainingMin > 0f)
-            yield return new WaitForSecondsRealtime(remainingMin);
 
         _awaitingResolutionScoresWhileLoading = false;
         _deferredResolutionRoundResultCoroutine = null;
@@ -1776,19 +1789,6 @@ public class MainUIController : MonoBehaviour
 
         PrepareRoundResultTransitionStart();
 
-        var fadeSeq = DOTween.Sequence().SetId(this);
-        if (_promptSharedGroup != null)
-            fadeSeq.Join(_promptSharedGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_gameplayElementsGroup != null)
-            fadeSeq.Join(_gameplayElementsGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_waitingP1Group != null)
-            fadeSeq.Join(_waitingP1Group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_waitingP2Group != null)
-            fadeSeq.Join(_waitingP2Group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_inputFieldContentGroup != null)
-            fadeSeq.Join(_inputFieldContentGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        seq.Append(fadeSeq);
-
         var inputGroup = GetInputFieldStateGroup();
         if (inputGroup != null)
         {
@@ -1799,6 +1799,8 @@ public class MainUIController : MonoBehaviour
 
         if (_inputField != null)
             _inputField.DeactivateInputField();
+        if (_inputFieldContentGroup != null)
+            _inputFieldContentGroup.alpha = 0f;
 
         var panelMorphSeq = DOTween.Sequence().SetId(this);
         if (_inputFieldRect != null)
@@ -1814,6 +1816,16 @@ public class MainUIController : MonoBehaviour
             SetRoundResultPanelAlpha(1f);
             if (inputGroup != null)
                 inputGroup.alpha = 0f;
+            if (_promptSharedGroup != null)
+                _promptSharedGroup.alpha = 0f;
+            if (_gameplayElementsGroup != null)
+                _gameplayElementsGroup.alpha = 0f;
+            if (_waitingP1Group != null)
+                _waitingP1Group.alpha = 0f;
+            if (_waitingP2Group != null)
+                _waitingP2Group.alpha = 0f;
+            if (_inputFieldContentGroup != null)
+                _inputFieldContentGroup.alpha = 0f;
             PrepareRoundResultContentForReveal();
             SetRoundResultStripeGroupAlpha(1f);
         });
@@ -1856,7 +1868,84 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Game End")]
     public void TransitionToGameEnd()
     {
+        if (_currentState == MainUIState.RoundResult)
+        {
+            TransitionFromRoundResultToGameEnd();
+            return;
+        }
+
         TransitionToConfiguredState(MainUIState.GameEnd);
+    }
+
+    void TransitionFromRoundResultToGameEnd()
+    {
+        DOTween.Kill(this);
+        StopAllCoroutines();
+
+        EnsureRoundResultElementsView();
+
+        if (_roundResultElementsGroup != null)
+        {
+            _roundResultElementsGroup.alpha = 1f;
+            _roundResultElementsGroup.interactable = false;
+            _roundResultElementsGroup.blocksRaycasts = false;
+        }
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            if (stripeGroup.transform is RectTransform stripeRect)
+                stripeRect.SetAsLastSibling();
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+        ConfigureGameEndWinnerText(0f);
+        ConfigureGameEndRestartHint(0f);
+
+        var seq = DOTween.Sequence().SetId(this);
+        var fadeSeq = DOTween.Sequence().SetId(this);
+        AddRoundResultFadeOutTween(fadeSeq, _promptSharedGroup);
+        AddRoundResultFadeOutTween(fadeSeq, _waitingP1Group);
+        AddRoundResultFadeOutTween(fadeSeq, _waitingP2Group);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP1WordText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP2WordText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP1ScoreText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP2ScoreText);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP1ScoreBar != null ? _roundResultP1ScoreBar.GetComponent<Graphic>() : null);
+        AddRoundResultFadeOutTween(fadeSeq, _roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null);
+        AddRoundResultFadeOutDeathLineTween(fadeSeq);
+        seq.Append(fadeSeq);
+
+        AddGameEndStripeBrushTween(seq);
+        if (_roundResultPanel != null)
+        {
+            var panelRect = _roundResultPanel.rectTransform;
+            seq.Join(panelRect.DOAnchorPos(GetGameEndBlackBarPosition(), _roundResultStripeRevealDuration).SetEase(_ease));
+            seq.Join(panelRect.DOSizeDelta(GetGameEndBlackBarSize(), _roundResultStripeRevealDuration).SetEase(_ease));
+        }
+        if (_roundResultDeathLabelText != null)
+            seq.Join(_roundResultDeathLabelText.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+        if (_pressSpaceGroup != null)
+            seq.Join(_pressSpaceGroup.DOFade(1f, _roundResultContentFadeDuration).SetEase(_ease));
+
+        seq.OnComplete(() =>
+        {
+            ConfigureGameEndWinnerText(1f);
+            ConfigureGameEndRestartHint(1f);
+            ConfigureGameEndStripes();
+            SetStateVisibilityImmediate(MainUIState.GameEnd);
+        });
+
+        _currentState = MainUIState.GameEnd;
+    }
+
+    public void SetGameEndText(string text)
+    {
+        if (!string.IsNullOrWhiteSpace(text))
+            _gameEndTitle = text;
+
+        if (_roundResultDeathLabelText != null)
+            _roundResultDeathLabelText.text = _gameEndTitle;
     }
 
     void TransitionToConfiguredState(MainUIState targetState)
@@ -1898,11 +1987,12 @@ public class MainUIController : MonoBehaviour
         // (Assumes panel pivot.y = 0 / bottom.)
         if (_waitingPanel != null)
         {
+            var revealAmount = GetWaitingPanelRevealAmount();
             var basePos = _waitingPanel.anchoredPosition;
-            var revealedPos = basePos + new Vector2(0f, _waitingPanelRevealAmount);
+            var revealedPos = basePos + new Vector2(0f, revealAmount);
             var revealedSize = new Vector2(
                 _waitingPanelTargetSize.x,
-                _waitingPanelTargetSize.y - _waitingPanelRevealAmount);
+                _waitingPanelTargetSize.y - revealAmount);
             _waitingPanel.DOAnchorPos(revealedPos, _waitingPanelRevealDuration).SetEase(_ease).SetId(this);
             _waitingPanel.DOSizeDelta(revealedSize, _waitingPanelRevealDuration).SetEase(_ease).SetId(this);
         }
@@ -2099,18 +2189,14 @@ public class MainUIController : MonoBehaviour
         _graphicK.Skew = _initSkew;
 
         if (_inputField != null) { _inputField.enabled = true; _inputField.readOnly = false; }
-        if (_inputFieldRect != null) _inputFieldRect.sizeDelta = _initInputFieldSize;
+        if (_inputFieldRect != null)
+        {
+            _inputFieldRect.anchoredPosition = _initInputFieldAnchoredPos;
+            _inputFieldRect.sizeDelta = _initInputFieldSize;
+        }
         if (_inputFieldContentGroup != null) _inputFieldContentGroup.alpha = 1f;
 
-        if (_decorativeLines != null)
-        {
-            foreach (var l in _decorativeLines)
-            {
-                if (l?.rect == null) continue;
-                l.rect.anchoredPosition = l.initialAnchoredPos;
-                l.rect.sizeDelta = l.initialSizeDelta;
-            }
-        }
+        ApplyStartDecorativeLineLayoutImmediate();
 
         SetStateVisibilityImmediate(MainUIState.Start);
 
@@ -2150,7 +2236,6 @@ public class MainUIController : MonoBehaviour
         ApplyStartInputPlaceholderState();
 
         EnsurePromptSharedView();
-        _loadingToPromptShowcaseCount = 0;
         PreparePromptShowcaseStart();
         if (_promptSharedGroup != null)
             _promptSharedGroup.alpha = 0f;
@@ -2586,22 +2671,11 @@ public class MainUIController : MonoBehaviour
         }
     }
 
-    void HidePromptBannedElementsWhenUnavailable()
-    {
-        if (HasPromptBannedLetters())
-            return;
-
-        if (_promptBannedText != null)
-            _promptBannedText.alpha = 0f;
-        if (_promptBannedMask != null)
-            _promptBannedMask.gameObject.SetActive(false);
-    }
-
     public void SetPromptForShowcase(string promptText, string bannedLetters)
     {
         if (!string.IsNullOrWhiteSpace(promptText))
             _promptText = promptText;
-        _promptBannedLetters = bannedLetters ?? "";
+        _promptBannedLetters = string.IsNullOrWhiteSpace(bannedLetters) ? _promptBannedLetters : bannedLetters;
     }
 
     bool HasPromptBannedLetters()
@@ -2611,9 +2685,6 @@ public class MainUIController : MonoBehaviour
 
     string GetBannedLetterRevealText()
     {
-        if (!HasPromptBannedLetters())
-            return string.Empty;
-
         var colorHex = ColorUtility.ToHtmlStringRGB(_promptBannedLetterColor);
         var coloredLetters = $"<size=150%><color=#{colorHex}>{_promptBannedLetters}</color></size>";
         return _promptBannedLetters.Length == 1
@@ -2889,6 +2960,8 @@ public class MainUIController : MonoBehaviour
         ConfigureRoundResultElements();
         SetRoundResultPanelAlpha(1f);
         SetRoundResultContentAlpha(0f);
+        PrepareRoundResultTypewriterText(_promptTitleText);
+        PrepareRoundResultTypewriterText(_promptBannedText);
     }
 
     void SetRoundResultPanelAlpha(float alpha)
@@ -2919,8 +2992,8 @@ public class MainUIController : MonoBehaviour
         if (_decorativeLines == null || _decorativeLines.Length < 3) return;
 
         PrepareRoundResultStripeForReveal(_decorativeLines[0]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(0));
-        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(1));
-        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(2));
+        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, GetRoundResultStripePosition(0), GetRoundResultStripeColor(1));
+        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, GetRoundResultStripePosition(1), GetRoundResultStripeColor(2));
 
         var stripeGroup = GetDecorativeLineStateGroup();
         if (stripeGroup != null)
@@ -2957,9 +3030,9 @@ public class MainUIController : MonoBehaviour
         if (seq == null || _decorativeLines == null || _decorativeLines.Length < 3) return;
 
         var stripeSeq = DOTween.Sequence().SetId(this);
-        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetRoundResultStripePosition(2));
-        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetRoundResultStripePosition(1));
         AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[0]?.rect, GetRoundResultStripePosition(0));
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetRoundResultStripePosition(1));
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetRoundResultStripePosition(2));
         seq.Append(stripeSeq);
     }
 
@@ -2975,8 +3048,8 @@ public class MainUIController : MonoBehaviour
         if (seq == null) return;
 
         var contentSeq = DOTween.Sequence().SetId(this);
-        AddRoundResultFadeTween(contentSeq, _promptTitleText);
-        AddRoundResultFadeTween(contentSeq, _promptBannedText);
+        AddRoundResultTypewriterTween(contentSeq, _promptTitleText);
+        AddRoundResultTypewriterTween(contentSeq, _promptBannedText);
         AddRoundResultFadeTween(contentSeq, _waitingP1Group);
         AddRoundResultFadeTween(contentSeq, _roundResultP1WordText);
         AddRoundResultFadeTween(contentSeq, _waitingP2Group);
@@ -2988,6 +3061,39 @@ public class MainUIController : MonoBehaviour
         AddRoundResultFadeTween(contentSeq, _roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null);
         AddRoundResultFadeTween(contentSeq, _roundResultP2ScoreText);
         seq.Append(contentSeq);
+    }
+
+    void AddRoundResultTypewriterTween(Sequence seq, TMP_Text text)
+    {
+        if (seq == null || text == null) return;
+
+        PrepareRoundResultTypewriterText(text);
+        var totalCharacters = GetVisibleTextCharacterCount(text);
+        if (totalCharacters <= 0)
+        {
+            SetTextVisibleCharacters(text, 0);
+            return;
+        }
+
+        var duration = totalCharacters / Mathf.Max(0.01f, _roundResultPromptCharactersPerSecond);
+        var visibleCharacters = 0;
+        seq.Append(DOTween.To(() => visibleCharacters, value =>
+            {
+                visibleCharacters = value;
+                SetTextVisibleCharacters(text, value);
+            }, totalCharacters, duration)
+            .SetEase(Ease.Linear)
+            .SetId(this));
+        if (_roundResultContentStagger > 0f)
+            seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void PrepareRoundResultTypewriterText(TMP_Text text)
+    {
+        if (text == null) return;
+
+        SetTextAlpha(text, 1f);
+        SetTextVisibleCharacters(text, 0);
     }
 
     void AddRoundResultFadeTween(Sequence seq, TMP_Text text)
@@ -3017,6 +3123,27 @@ public class MainUIController : MonoBehaviour
             seq.AppendInterval(_roundResultContentStagger);
     }
 
+    void AddRoundResultFadeOutTween(Sequence seq, TMP_Text text)
+    {
+        if (seq == null || text == null) return;
+
+        seq.Join(text.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+    }
+
+    void AddRoundResultFadeOutTween(Sequence seq, Graphic graphic)
+    {
+        if (seq == null || graphic == null) return;
+
+        seq.Join(graphic.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+    }
+
+    void AddRoundResultFadeOutTween(Sequence seq, CanvasGroup group)
+    {
+        if (seq == null || group == null) return;
+
+        seq.Join(group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+    }
+
     void AddRoundResultDeathLineFadeTween(Sequence seq)
     {
         if (seq == null || _roundResultDeathLineGroup == null) return;
@@ -3031,6 +3158,18 @@ public class MainUIController : MonoBehaviour
         seq.Append(lineSeq);
         if (_roundResultContentStagger > 0f)
             seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void AddRoundResultFadeOutDeathLineTween(Sequence seq)
+    {
+        if (seq == null || _roundResultDeathLineGroup == null) return;
+
+        for (var i = 0; i < _roundResultDeathLineGroup.childCount; i++)
+        {
+            var graphic = _roundResultDeathLineGroup.GetChild(i).GetComponent<Graphic>();
+            if (graphic != null)
+                seq.Join(graphic.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
+        }
     }
 
     void ConfigureRoundResultElements()
@@ -3051,6 +3190,61 @@ public class MainUIController : MonoBehaviour
         SetRoundResultSiblingOrder();
     }
 
+    void ConfigureGameEndWinnerText(float alpha)
+    {
+        if (_roundResultDeathLabelText == null) return;
+
+        _roundResultDeathLabelText.text = _gameEndTitle;
+        _roundResultDeathLabelText.color = _promptInkColor;
+        _roundResultDeathLabelText.fontSize = 170f;
+        _roundResultDeathLabelText.alignment = TextAlignmentOptions.Center;
+        ConfigureRect(_roundResultDeathLabelText.rectTransform, GetGameEndTitlePosition(), new Vector2(1600f, 220f), new Vector2(0.5f, 0.5f));
+        _roundResultDeathLabelText.alpha = alpha;
+        _roundResultDeathLabelText.transform.SetAsLastSibling();
+    }
+
+    void ConfigureGameEndRestartHint(float alpha)
+    {
+        var text = GetPressSpaceText();
+        if (text == null) return;
+
+        text.text = "press space to restart";
+        text.color = _promptInkColor;
+        text.fontSize = 52f;
+        text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
+        ConfigureRect(text.rectTransform, GetGameEndRestartHintPosition(), new Vector2(900f, 70f), new Vector2(0.5f, 0.5f));
+        if (_pressSpaceGroup != null)
+        {
+            _pressSpaceGroup.alpha = alpha;
+            _pressSpaceGroup.interactable = false;
+            _pressSpaceGroup.blocksRaycasts = false;
+            _pressSpaceGroup.transform.SetAsLastSibling();
+        }
+    }
+
+    void ConfigureTutorialPressSpaceHint(float alpha)
+    {
+        var text = GetPressSpaceText();
+        if (text == null) return;
+
+        text.text = "press space to continue";
+        text.fontSize = 52.5f;
+        text.alignment = TextAlignmentOptions.Center;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Overflow;
+        ConfigureRect(text.rectTransform, new Vector2(23f, -292.6615f), new Vector2(644.2111f, 62.6421f), new Vector2(0.5f, 0.5f));
+        if (_pressSpaceGroup != null)
+        {
+            _pressSpaceGroup.alpha = alpha;
+            _pressSpaceGroup.interactable = false;
+            _pressSpaceGroup.blocksRaycasts = false;
+        }
+    }
+
+    TMP_Text GetPressSpaceText() => _pressSpaceGroup != null ? _pressSpaceGroup.GetComponent<TMP_Text>() : null;
+
     void ConfigureRoundResultStripes()
     {
         if (_decorativeLines == null || _decorativeLines.Length < 3) return;
@@ -3067,11 +3261,48 @@ public class MainUIController : MonoBehaviour
         }
     }
 
+    void ConfigureGameEndStripes()
+    {
+        if (_decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        ConfigureRoundResultStripe(_decorativeLines[0]?.rect, GetGameEndStripePosition(0), GetRoundResultStripeColor(0));
+        ConfigureRoundResultStripe(_decorativeLines[1]?.rect, GetGameEndStripePosition(1), GetRoundResultStripeColor(1));
+        ConfigureRoundResultStripe(_decorativeLines[2]?.rect, GetGameEndStripePosition(2), GetRoundResultStripeColor(2));
+
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            if (stripeGroup.transform is RectTransform stripeRect)
+                stripeRect.SetAsLastSibling();
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+    }
+
+    void AddGameEndStripeBrushTween(Sequence seq)
+    {
+        if (seq == null || _decorativeLines == null || _decorativeLines.Length < 3) return;
+
+        var stripeSeq = DOTween.Sequence().SetId(this);
+        AddGameEndStripeMoveTween(stripeSeq, _decorativeLines[0]?.rect, GetGameEndStripePosition(0));
+        AddGameEndStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetGameEndStripePosition(1));
+        AddGameEndStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetGameEndStripePosition(2));
+        seq.Append(stripeSeq);
+    }
+
+    void AddGameEndStripeMoveTween(Sequence stripeSeq, RectTransform rect, Vector2 targetPosition)
+    {
+        if (stripeSeq == null || rect == null) return;
+
+        stripeSeq.Join(rect.DOAnchorPos(targetPosition, _roundResultStripeRevealDuration).SetEase(_ease));
+    }
+
     void ConfigureRoundResultStripe(RectTransform rect, Vector2 position, Color color)
     {
         if (rect == null) return;
 
-        ConfigureRect(rect, position, new Vector2(1800f, 20f), new Vector2(0.5f, 0.5f));
+        ConfigureRect(rect, position, GetStandardStripeSize(), new Vector2(0.5f, 0.5f));
         rect.gameObject.SetActive(true);
         var graphic = rect.GetComponent<Graphic>();
         if (graphic != null)
@@ -3083,9 +3314,9 @@ public class MainUIController : MonoBehaviour
 
     Color GetRoundResultStripeColor(int index)
     {
-        if (index == 0) return _roundResultBottomStripeColor;
+        if (index == 0) return _roundResultTopStripeColor;
         if (index == 1) return _roundResultMiddleStripeColor;
-        return _roundResultTopStripeColor;
+        return _roundResultBottomStripeColor;
     }
 
     void RemoveDeprecatedRoundResultStripeCopies()
@@ -3284,6 +3515,39 @@ public class MainUIController : MonoBehaviour
     Vector2 GetGameplayInputFieldPosition() => new Vector2(0f, -420f);
     Vector2 GetGameplayInputFieldSize() => new Vector2(1800f, 120f);
     Vector2 GetWaitingPanelStartPosition() => _waitingPanelStartAnchoredPos + new Vector2(0f, _waitingPanelYOffset);
+    void ApplyStartDecorativeLineLayoutImmediate()
+    {
+        if (_decorativeLines == null || _inputFieldRect == null)
+            return;
+
+        var inputWidth = Mathf.Max(0f, _initInputFieldSize.x);
+        if (inputWidth <= 0f)
+            inputWidth = Mathf.Max(0f, _inputFieldRect.sizeDelta.x);
+        if (inputWidth <= 0f)
+            return;
+
+        var inputLeftEdge = _initInputFieldAnchoredPos.x - inputWidth * _inputFieldRect.pivot.x;
+        foreach (var line in _decorativeLines)
+        {
+            if (line?.rect == null) continue;
+
+            var lineHeight = Mathf.Max(1f, line.initialSizeDelta.y);
+            var lineSize = new Vector2(inputWidth, lineHeight);
+            line.rect.sizeDelta = lineSize;
+            line.rect.anchoredPosition = new Vector2(
+                inputLeftEdge + lineSize.x * line.rect.pivot.x,
+                line.initialAnchoredPos.y);
+        }
+    }
+
+    float GetWaitingPanelRevealAmount()
+    {
+        var inputHeight = _inputFieldRect != null
+            ? Mathf.Max(0f, _inputFieldRect.sizeDelta.y)
+            : Mathf.Max(0f, _waitingPanelStartSize.y);
+        return Mathf.Max(0f, inputHeight + StandardUiGap - _waitingPanelYOffset);
+    }
+
     void ApplyWaitingDecorativeLineLayoutImmediate()
     {
         if (_decorativeLines == null) return;
@@ -3303,7 +3567,7 @@ public class MainUIController : MonoBehaviour
         if (line == null) return Vector2.zero;
 
         var lineHeight = Mathf.Max(1f, line.waitingSizeDelta.y);
-        var gap = GetWaitingLineGap();
+        var gap = StandardUiGap;
         var bottomLineIndex = _decorativeLines != null ? Mathf.Max(0, _decorativeLines.Length - 1) : 0;
         var stepsAboveBottom = Mathf.Max(0, bottomLineIndex - index);
         var panelPivotY = _waitingPanel != null ? _waitingPanel.pivot.y : 0f;
@@ -3312,20 +3576,7 @@ public class MainUIController : MonoBehaviour
         return new Vector2(line.waitingAnchoredPos.x, y);
     }
 
-    float GetWaitingLineGap()
-    {
-        if (_decorativeLines == null || _decorativeLines.Length < 2)
-            return 14f;
-
-        var first = _decorativeLines[0];
-        var second = _decorativeLines[1];
-        if (first == null || second == null)
-            return 14f;
-
-        var lineHeight = Mathf.Max(1f, Mathf.Max(first.waitingSizeDelta.y, second.waitingSizeDelta.y));
-        var centerGap = Mathf.Abs(first.waitingAnchoredPos.y - second.waitingAnchoredPos.y);
-        return Mathf.Max(0f, centerGap - lineHeight);
-    }
+    float StandardUiGap => Mathf.Max(0f, _standardUiGap);
     Vector2 GetGameplayP1LetterGroupPosition() => new Vector2(-760f, GetGameplayP1IconPosition().y);
     Vector2 GetGameplayP2LetterGroupPosition() => new Vector2(-760f, GetGameplayP2IconPosition().y);
     Vector2 GetRoundResultPromptTopLeftPosition() => new Vector2(105f, -185f);
@@ -3364,8 +3615,111 @@ public class MainUIController : MonoBehaviour
     }
     Vector2 GetRoundResultPanelPosition() => new Vector2(0f, -52f);
     Vector2 GetRoundResultPanelSize() => new Vector2(1800f, 856f);
-    Vector2 GetRoundResultStripePosition(int index) => new Vector2(0f, index == 0 ? 470f : index == 1 ? 436f : 402f);
-    Vector2 GetRoundResultStripeStartPosition() => new Vector2(0f, GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f - 10f);
+    Vector2 GetGameEndTitlePosition() => new Vector2(0f, 80f);
+    Vector2 GetGameEndRestartHintPosition() => new Vector2(0f, -210f);
+    Vector2 GetGameEndBlackBarPosition() => GetGameEndBlackBarCenterInPanelSpace();
+    Vector2 GetGameEndBlackBarSize() => new Vector2(GetGameEndStripeWidthInPanelSpace(), GetStandardStripeSize().y);
+    float GetGameEndStripeBottomCenterY() => GetGameEndBlackBarCenterYInStripeSpace() + GetStandardStripeSize().y + StandardUiGap;
+    Vector2 GetGameEndBlackBarCenterInPanelSpace()
+    {
+        var stripe = GetGameEndReferenceStripe();
+        var panelParent = GetRoundResultPanelParent();
+        if (stripe == null || stripe.parent == null || panelParent == null)
+            return GetGameEndBlackBarPositionFallback();
+
+        var blackBarCenter = GetGameEndBlackBarCenterInStripeSpace();
+        var worldCenter = stripe.parent.TransformPoint(blackBarCenter);
+        return panelParent.InverseTransformPoint(worldCenter);
+    }
+
+    Vector2 GetGameEndBlackBarCenterInStripeSpace() => new Vector2(0f, GetGameEndBlackBarCenterYInStripeSpace());
+
+    float GetGameEndBlackBarCenterYInStripeSpace()
+    {
+        var stripeHeight = GetStandardStripeSize().y;
+        var stripeParent = GetGameEndReferenceStripe()?.parent as RectTransform;
+        var bottomY = -GetDesignCanvasSize().y * 0.5f;
+        return bottomY + GetGameEndPageMargin(stripeParent) + stripeHeight * 0.5f;
+    }
+
+    float GetGameEndPageMargin(RectTransform stripeParent)
+    {
+        var parentWidth = GetDesignCanvasSize().x;
+        return Mathf.Max(0f, (parentWidth - GetStandardStripeSize().x) * 0.5f);
+    }
+
+    Vector2 GetDesignCanvasSize()
+    {
+        var width = _lockedResolution.x > 0 ? _lockedResolution.x : 1920;
+        var height = _lockedResolution.y > 0 ? _lockedResolution.y : 1080;
+        return new Vector2(width, height);
+    }
+
+    float GetGameEndStripeWidthInPanelSpace()
+    {
+        var stripe = GetGameEndReferenceStripe();
+        var panelParent = GetRoundResultPanelParent();
+        if (stripe == null || stripe.parent == null || panelParent == null)
+            return GetStandardStripeSize().x;
+
+        var stripeSize = GetStandardStripeSize();
+        var stripeCenter = GetGameEndStripePosition(0);
+        var worldLeft = stripe.parent.TransformPoint(stripeCenter + new Vector2(-stripeSize.x * 0.5f, 0f));
+        var worldRight = stripe.parent.TransformPoint(stripeCenter + new Vector2(stripeSize.x * 0.5f, 0f));
+        var localLeft = panelParent.InverseTransformPoint(worldLeft);
+        var localRight = panelParent.InverseTransformPoint(worldRight);
+        return Mathf.Abs(localRight.x - localLeft.x);
+    }
+
+    RectTransform GetGameEndReferenceStripe()
+    {
+        if (_decorativeLines == null) return null;
+        foreach (var line in _decorativeLines)
+        {
+            if (line?.rect != null)
+                return line.rect;
+        }
+        return null;
+    }
+
+    Transform GetRoundResultPanelParent()
+    {
+        if (_roundResultPanel != null && _roundResultPanel.rectTransform != null)
+            return _roundResultPanel.rectTransform.parent;
+        return _roundResultElementsGroupRect != null ? _roundResultElementsGroupRect : transform;
+    }
+
+    Vector2 GetGameEndStripePosition(int index)
+    {
+        var clampedIndex = Mathf.Clamp(index, 0, 2);
+        var stripeHeight = GetStandardStripeSize().y;
+        var bottomStripeCenterY = GetGameEndStripeBottomCenterY();
+        var centerStep = stripeHeight + StandardUiGap;
+        return new Vector2(0f, bottomStripeCenterY + clampedIndex * centerStep);
+    }
+
+    Vector2 GetGameEndBlackBarPositionFallback()
+    {
+        return GetGameEndBlackBarCenterInStripeSpace();
+    }
+
+    Vector2 GetRoundResultStripePosition(int index)
+    {
+        var clampedIndex = Mathf.Clamp(index, 0, 2);
+        var panelTopY = GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f;
+        var stripeHeight = GetStandardStripeSize().y;
+        var bottomStripeCenterY = panelTopY + StandardUiGap + stripeHeight * 0.5f;
+        var centerStep = stripeHeight + StandardUiGap;
+        return new Vector2(0f, bottomStripeCenterY + clampedIndex * centerStep);
+    }
+
+    Vector2 GetRoundResultStripeStartPosition()
+    {
+        var panelTopY = GetRoundResultPanelPosition().y + GetRoundResultPanelSize().y * 0.5f;
+        return new Vector2(0f, panelTopY + GetStandardStripeSize().y * 0.5f);
+    }
+
+    Vector2 GetStandardStripeSize() => new Vector2(1800f, 20f);
 
     void SetSharedPromptVisibleForGameplay(bool preserveGameplayInputSubmitLock = false)
     {
@@ -3394,9 +3748,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.fontSize = GetGameplayBannedLabelFontSize();
             SetCenterLeftAnchors(_promptBannedText.rectTransform);
             _promptBannedText.rectTransform.sizeDelta = GetGameplayBannedLabelSize();
-            // Match first PromptShowcase: hide banned subtitle on first Loading→Gameplay of the match (_loadingToPromptShowcaseCount is 1 after the opening showcase).
-            var showBannedGameplayRow = HasPromptBannedLetters() && _loadingToPromptShowcaseCount >= 2;
-            _promptBannedText.alpha = showBannedGameplayRow ? 1f : 0f;
+            _promptBannedText.alpha = HasPromptBannedLetters() ? 1f : 0f;
             _promptBannedText.rectTransform.anchoredPosition = GetGameplayBannedLabelPosition();
         }
 
@@ -3427,6 +3779,7 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.text = MainUiDisplayText(GetPromptTextWithBannedLetters(_promptText));
             _promptTitleText.fontSize = 170f;
             _promptTitleText.alpha = 1f;
+            SetTextFullyVisible(_promptTitleText);
             ConfigureTopLeftRect(_promptTitleText.rectTransform, GetRoundResultPromptTopLeftPosition(), new Vector2(1400f, 220f));
         }
 
@@ -3439,6 +3792,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
             _promptBannedText.fontSize = 59f;
             _promptBannedText.alpha = 1f;
+            SetTextFullyVisible(_promptBannedText);
             ConfigureTopLeftRect(_promptBannedText.rectTransform, GetRoundResultBannedLabelTopLeftPosition(), new Vector2(1000f, 90f));
         }
     }
@@ -3673,12 +4027,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(-82f, 0f), new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(-82f, 0f), GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, Vector2.zero, GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -3702,12 +4056,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(-70f, 0f), new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, new Vector2(-70f, 0f), GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, Vector2.zero, new Vector2(24f, 14f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, Vector2.zero, GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Right, 24f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -3903,12 +4257,12 @@ public class MainUIController : MonoBehaviour
         if (indicator != null)
         {
             indicator.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(indicator, new Vector2(0f, -132f), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(indicator, ApplyPlayerIndicatorDownOffset(new Vector2(0f, -132f)), new Vector2(93.0246f, 90f), new Vector2(0.5f, 0.5f));
         }
         if (triangle != null)
         {
             triangle.gameObject.SetActive(showLocalIndicator);
-            ConfigureRect(triangle, new Vector2(0f, 4f), new Vector2(27.0481f, 16f), new Vector2(0.5f, 0.5f));
+            ConfigureRect(triangle, new Vector2(0f, 4f), GetEquilateralTriangleRectSize(TriangleGraphic.Direction.Up, 27.0481f), new Vector2(0.5f, 0.5f));
             var triangleGraphic = triangle.GetComponent<TriangleGraphic>();
             if (triangleGraphic != null)
             {
@@ -3923,6 +4277,16 @@ public class MainUIController : MonoBehaviour
             ConfigureRect(youText, new Vector2(1.9196f, -28f), new Vector2(71f, 48.8f), new Vector2(0.5f, 0.5f));
         }
     }
+
+    static Vector2 GetEquilateralTriangleRectSize(TriangleGraphic.Direction direction, float sideLength)
+    {
+        var altitude = sideLength * EquilateralTriangleAltitude;
+        return direction == TriangleGraphic.Direction.Left || direction == TriangleGraphic.Direction.Right
+            ? new Vector2(altitude, sideLength)
+            : new Vector2(sideLength, altitude);
+    }
+
+    Vector2 ApplyPlayerIndicatorDownOffset(Vector2 position) => position + new Vector2(0f, -Mathf.Max(0f, _playerIndicatorDownOffset));
 
     Vector2 GetGameplayP1IconPosition() => new Vector2(-840f, -40f);
     Vector2 GetGameplayP2IconPosition() => new Vector2(-840f, -197.5f);
@@ -4785,6 +5149,35 @@ public class MainUIController : MonoBehaviour
         titleText.maxVisibleCharacters = Mathf.Max(0, visibleCharacters);
     }
 
+    int GetVisibleTextCharacterCount(TMP_Text text)
+    {
+        if (text == null)
+            return 0;
+
+        var previousVisibleCharacters = text.maxVisibleCharacters;
+        text.maxVisibleCharacters = int.MaxValue;
+        text.ForceMeshUpdate();
+        var characterCount = text.textInfo.characterCount;
+        text.maxVisibleCharacters = previousVisibleCharacters;
+        return characterCount;
+    }
+
+    void SetTextVisibleCharacters(TMP_Text text, int visibleCharacters)
+    {
+        if (text == null)
+            return;
+
+        text.maxVisibleCharacters = Mathf.Max(0, visibleCharacters);
+    }
+
+    void SetTextFullyVisible(TMP_Text text)
+    {
+        if (text == null)
+            return;
+
+        text.maxVisibleCharacters = int.MaxValue;
+    }
+
     Tween TweenHintAlpha(TMP_Text hintText, float targetAlpha, float duration)
     {
         if (hintText == null)
@@ -4961,6 +5354,13 @@ public class MainUIController : MonoBehaviour
             }
         }
 
+        if (state == MainUIState.GameEnd)
+        {
+            AddUniqueGroup(result, _roundResultElementsGroup);
+            AddUniqueGroup(result, GetDecorativeLineStateGroup());
+            AddUniqueGroup(result, _pressSpaceGroup);
+        }
+
         return result.ToArray();
     }
 
@@ -4977,8 +5377,8 @@ public class MainUIController : MonoBehaviour
 
         foreach (var cg in new[]
                  {
-                     _promptSharedGroup, _gameplayElementsGroup, _roundResultElementsGroup,
-                     _tutorialTitleGroup, _pressSpaceGroup, _roomIdTitleGroup, _roomIdHintGroup,
+                      _promptSharedGroup, _gameplayElementsGroup, _roundResultElementsGroup,
+                      _tutorialTitleGroup, _pressSpaceGroup, _roomIdTitleGroup, _roomIdHintGroup,
                      _waitingTitleGroup, _waitingRoomIdGroup, _waitingHintGroup, _waitingP1Group, _waitingP2Group,
                      _inputFieldContentGroup
                  })
@@ -5186,6 +5586,10 @@ public class MainUIController : MonoBehaviour
                 EnsurePromptSharedView();
                 EnsureRoundResultElementsView();
                 break;
+            case MainUIState.GameEnd:
+                EnsureRoundResultElementsView();
+                ConfigureGameEndRestartHint(1f);
+                break;
         }
     }
 
@@ -5208,6 +5612,12 @@ public class MainUIController : MonoBehaviour
                 SetRoundResultPlayerIconsVisible();
                 break;
             case MainUIState.GameEnd:
+                EnsureRoundResultElementsView();
+                ConfigureGameEndWinnerText(1f);
+                ConfigureGameEndRestartHint(1f);
+                if (_roundResultPanel != null)
+                    ConfigureImageRect(_roundResultPanel, GetGameEndBlackBarPosition(), GetGameEndBlackBarSize(), _promptInkColor);
+                ConfigureGameEndStripes();
                 // RoundResult shares _promptSharedGroup with PromptShowcase; fade-only transitions can
                 // briefly read as the showcase layer. Hide it immediately before FadeStateDifference.
                 SuppressSharedPromptLayerForGameEndTransition();
@@ -5331,6 +5741,9 @@ public class MainUIController : MonoBehaviour
         changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, GetDecorativeLineStateGroup());
         changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _waitingP1Group);
         changed |= AddVisibleGroupToSerializedState(MainUIState.RoundResult, _waitingP2Group);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.GameEnd, _roundResultElementsGroup);
+        changed |= AddVisibleGroupToSerializedState(MainUIState.GameEnd, GetDecorativeLineStateGroup());
+        changed |= AddVisibleGroupToSerializedState(MainUIState.GameEnd, _pressSpaceGroup);
 
         return changed;
     }

@@ -32,9 +32,6 @@ namespace UI
         [Tooltip("Rich-text color for characters that match a banned letter (see GetTextWithTransparentColor). Default matches former #A59D98AA.")]
         [SerializeField] Color m_bannedLetterInputTint = new Color32(0xA5, 0x9D, 0x98, 0xAA);
 
-        /// <summary>Legacy GameScreen only: incremented each time <see cref="GameScreenUI"/> is shown this lobby session; first opening hides banned-letter line (mirrors Main UI showcase rule).</summary>
-        int m_legacyGameScreenOpenCount;
-
         public GameObject IsNotToBanLetterIcon;
 
         [Header("Main menu text commands (MainMenuUI command field)")]
@@ -156,7 +153,6 @@ namespace UI
 
         public void EnterWaitingScreen(string roomName, string connectionCode)
         {
-            m_legacyGameScreenOpenCount = 0;
             ConnectionScreenUI.Hide();
             WaitingScreenUI.Show(roomName, connectionCode);
         }
@@ -274,7 +270,6 @@ namespace UI
             {
                 if (m_useMainUIForGameplay && m_mainUI == null)
                     Debug.LogWarning("UIManager: m_useMainUIForGameplay is on but m_mainUI is not assigned; using legacy GameScreenUI.");
-                m_legacyGameScreenOpenCount++;
                 GameScreenUI.Show();
                 GameScreenUI.ClearWordInputField();
                 if (AudioManager.Instance != null)
@@ -563,8 +558,8 @@ namespace UI
             {
                 GameScreenUI.Hide();
                 ResolutionScreenUI.Hide();
+                m_mainUI.SetGameEndText(winText);
                 m_mainUI.TransitionToGameEnd();
-                UpdateWinText(winText);
                 return;
             }
 
@@ -579,13 +574,6 @@ namespace UI
             {
                 if (GameScreenUI != null)
                     GameScreenUI.UpdateInvalidLettersText("", true);
-                return;
-            }
-
-            // First legacy GameScreen session this match: keep banned-letter label hidden (Main UI hides via MainUIController.SetSharedPromptVisibleForGameplay).
-            if (m_legacyGameScreenOpenCount == 1 && !isHide)
-            {
-                GameScreenUI.UpdateInvalidLettersText("", true);
                 return;
             }
 

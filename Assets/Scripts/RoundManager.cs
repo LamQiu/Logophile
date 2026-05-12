@@ -176,6 +176,7 @@ public class RoundManager : NetworkBehaviour
 
         if (!_promptGenerated)
         {
+            EnsureBannedLetterForPrompt();
             GeneratePrompt();
             Debug.Log("Prompt generated");
             _promptGenerated = true;
@@ -433,6 +434,27 @@ public class RoundManager : NetworkBehaviour
     }
 
     private string m_bannedLettersText = "";
+    public string CurrentBannedLetters => m_bannedLettersText;
+
+    private void EnsureBannedLetterForPrompt()
+    {
+        if (!IsServer) return;
+        if (!string.IsNullOrEmpty(m_bannedLettersText)) return;
+
+        var availableLetters = Enumerable.Range('a', 26)
+            .Select(i => (char)i)
+            .ToList();
+
+        var selectedLetter = availableLetters[Random.Range(0, availableLetters.Count)];
+        m_bannedLettersText = selectedLetter.ToString();
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.MarkBannedLetters(m_bannedLettersText);
+            UIManager.Instance.UpdateBannedLettersText(m_bannedLettersText, !m_isToBanLetter);
+        }
+        UpdateBannedLettersTextClientRpc(selectedLetter);
+        Debug.Log($"Initial banned letter {selectedLetter}");
+    }
 
     [Rpc(SendTo.ClientsAndHost)]
     private void UpdateBannedLettersTextClientRpc(char bannedLetter)
@@ -552,6 +574,7 @@ public class RoundManager : NetworkBehaviour
         RoundTimeRemainingInSeconds.Value = RoundTimeLimitInSeconds;
         ResolutionTimeRemainingInSeconds.Value = ResolutionTimeLimitInSeconds;
 
+        EnsureBannedLetterForPrompt();
         GeneratePrompt();
         _promptGenerated = true;
         _pendingEnterNextRoundAfterLobbyPromptShowcase = true;
