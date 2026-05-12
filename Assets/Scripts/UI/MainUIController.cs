@@ -3241,9 +3241,9 @@ public class MainUIController : MonoBehaviour
 
     Color GetRoundResultStripeColor(int index)
     {
-        if (index == 0) return _roundResultBottomStripeColor;
+        if (index == 0) return _roundResultTopStripeColor;
         if (index == 1) return _roundResultMiddleStripeColor;
-        return _roundResultTopStripeColor;
+        return _roundResultBottomStripeColor;
     }
 
     void RemoveDeprecatedRoundResultStripeCopies()
