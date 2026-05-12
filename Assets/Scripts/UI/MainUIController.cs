@@ -271,7 +271,7 @@ public class MainUIController : MonoBehaviour
     Coroutine _deferredPromptShowcaseCoroutine;
     bool _promptShowcaseFinishedNotified;
 
-    [Tooltip("Minimum time on the Loading screen after resolution before Round Result (mirrors prompt loading hold).")]
+    [Tooltip("Legacy hold value for the old resolution Loading screen; Gameplay now stays visible until the input-field wipe starts.")]
     [SerializeField] float _minLoadingHoldSecondsBeforeRoundResult = 0.15f;
     const float k_resolutionHpSyncTimeoutSeconds = 5f;
     bool _awaitingResolutionScoresWhileLoading;
@@ -366,6 +366,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _roundResultPanelMorphDuration = 0.55f;
     [SerializeField] float _roundResultStripeRevealDuration = 0.35f;
     [SerializeField] float _roundResultContentFadeDuration = 0.35f;
+    [SerializeField] float _roundResultPromptCharactersPerSecond = 30f;
     [Tooltip("Bar width when HP equals GameManager.MaxPlayerHp (P1/P2 share the same scale).")]
     [SerializeField] float _roundResultScoreBarFullWidth = 217f;
     [SerializeField] float _roundResultScoreBarHeight = 45f;
@@ -1629,7 +1630,7 @@ public class MainUIController : MonoBehaviour
     }
 
     /// <summary>
-    /// MainUI flow: after resolution damage is applied on the server, show Loading until local <see cref="Client.CurrentHp"/> matches the server snapshot, then play the Round Result entrance (same tween as direct gameplay → result).
+    /// MainUI flow: after resolution damage is applied on the server, wait until local <see cref="Client.CurrentHp"/> matches the server snapshot, then play the input-field wipe into Round Result.
     /// </summary>
     public void BeginResolutionScoreSyncThenRoundResult(string hostAnswer, string clientAnswer, int hostHpAfter, int clientHpAfter, bool hostAnswerLetterEligible, bool clientAnswerLetterEligible)
     {
@@ -1649,18 +1650,13 @@ public class MainUIController : MonoBehaviour
             _deferredPromptShowcaseCoroutine = null;
         }
 
-        var seq = DOTween.Sequence().SetId(this);
-        if (AppendFadeOutAllUiCanvasGroupsBeforeLoading(seq, _fadeOutDuration))
-            seq.OnComplete(FinishBeginResolutionScoreSyncLoadingEntry);
-        else
-            FinishBeginResolutionScoreSyncLoadingEntry();
+        BeginResolutionScoreSyncWait();
     }
 
-    void FinishBeginResolutionScoreSyncLoadingEntry()
+    void BeginResolutionScoreSyncWait()
     {
-        ApplyMainLoadingOverlayVisualStateImmediate();
-
         _awaitingResolutionScoresWhileLoading = true;
+        _loadingHoldStartUnscaledTime = -1f;
         _deferredResolutionRoundResultCoroutine = StartCoroutine(WaitResolutionHpSyncAndEnterRoundResultRoutine());
     }
 
@@ -1678,11 +1674,6 @@ public class MainUIController : MonoBehaviour
 
         if (!_awaitingResolutionScoresWhileLoading)
             yield break;
-
-        var elapsed = _loadingHoldStartUnscaledTime < 0f ? 999f : (Time.unscaledTime - _loadingHoldStartUnscaledTime);
-        var remainingMin = Mathf.Max(0f, _minLoadingHoldSecondsBeforeRoundResult - elapsed);
-        if (remainingMin > 0f)
-            yield return new WaitForSecondsRealtime(remainingMin);
 
         _awaitingResolutionScoresWhileLoading = false;
         _deferredResolutionRoundResultCoroutine = null;
@@ -1754,19 +1745,6 @@ public class MainUIController : MonoBehaviour
 
         PrepareRoundResultTransitionStart();
 
-        var fadeSeq = DOTween.Sequence().SetId(this);
-        if (_promptSharedGroup != null)
-            fadeSeq.Join(_promptSharedGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_gameplayElementsGroup != null)
-            fadeSeq.Join(_gameplayElementsGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_waitingP1Group != null)
-            fadeSeq.Join(_waitingP1Group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_waitingP2Group != null)
-            fadeSeq.Join(_waitingP2Group.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        if (_inputFieldContentGroup != null)
-            fadeSeq.Join(_inputFieldContentGroup.DOFade(0f, _roundResultFadeGameplayDuration).SetEase(_ease));
-        seq.Append(fadeSeq);
-
         var inputGroup = GetInputFieldStateGroup();
         if (inputGroup != null)
         {
@@ -1777,6 +1755,8 @@ public class MainUIController : MonoBehaviour
 
         if (_inputField != null)
             _inputField.DeactivateInputField();
+        if (_inputFieldContentGroup != null)
+            _inputFieldContentGroup.alpha = 0f;
 
         var panelMorphSeq = DOTween.Sequence().SetId(this);
         if (_inputFieldRect != null)
@@ -1792,6 +1772,16 @@ public class MainUIController : MonoBehaviour
             SetRoundResultPanelAlpha(1f);
             if (inputGroup != null)
                 inputGroup.alpha = 0f;
+            if (_promptSharedGroup != null)
+                _promptSharedGroup.alpha = 0f;
+            if (_gameplayElementsGroup != null)
+                _gameplayElementsGroup.alpha = 0f;
+            if (_waitingP1Group != null)
+                _waitingP1Group.alpha = 0f;
+            if (_waitingP2Group != null)
+                _waitingP2Group.alpha = 0f;
+            if (_inputFieldContentGroup != null)
+                _inputFieldContentGroup.alpha = 0f;
             PrepareRoundResultContentForReveal();
             SetRoundResultStripeGroupAlpha(1f);
         });
@@ -2922,6 +2912,8 @@ public class MainUIController : MonoBehaviour
         ConfigureRoundResultElements();
         SetRoundResultPanelAlpha(1f);
         SetRoundResultContentAlpha(0f);
+        PrepareRoundResultTypewriterText(_promptTitleText);
+        PrepareRoundResultTypewriterText(_promptBannedText);
     }
 
     void SetRoundResultPanelAlpha(float alpha)
@@ -2952,8 +2944,8 @@ public class MainUIController : MonoBehaviour
         if (_decorativeLines == null || _decorativeLines.Length < 3) return;
 
         PrepareRoundResultStripeForReveal(_decorativeLines[0]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(0));
-        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(1));
-        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, GetRoundResultStripeStartPosition(), GetRoundResultStripeColor(2));
+        PrepareRoundResultStripeForReveal(_decorativeLines[1]?.rect, GetRoundResultStripePosition(0), GetRoundResultStripeColor(1));
+        PrepareRoundResultStripeForReveal(_decorativeLines[2]?.rect, GetRoundResultStripePosition(1), GetRoundResultStripeColor(2));
 
         var stripeGroup = GetDecorativeLineStateGroup();
         if (stripeGroup != null)
@@ -2990,9 +2982,9 @@ public class MainUIController : MonoBehaviour
         if (seq == null || _decorativeLines == null || _decorativeLines.Length < 3) return;
 
         var stripeSeq = DOTween.Sequence().SetId(this);
-        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetRoundResultStripePosition(2));
-        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetRoundResultStripePosition(1));
         AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[0]?.rect, GetRoundResultStripePosition(0));
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[1]?.rect, GetRoundResultStripePosition(1));
+        AddRoundResultStripeMoveTween(stripeSeq, _decorativeLines[2]?.rect, GetRoundResultStripePosition(2));
         seq.Append(stripeSeq);
     }
 
@@ -3008,8 +3000,8 @@ public class MainUIController : MonoBehaviour
         if (seq == null) return;
 
         var contentSeq = DOTween.Sequence().SetId(this);
-        AddRoundResultFadeTween(contentSeq, _promptTitleText);
-        AddRoundResultFadeTween(contentSeq, _promptBannedText);
+        AddRoundResultTypewriterTween(contentSeq, _promptTitleText);
+        AddRoundResultTypewriterTween(contentSeq, _promptBannedText);
         AddRoundResultFadeTween(contentSeq, _waitingP1Group);
         AddRoundResultFadeTween(contentSeq, _roundResultP1WordText);
         AddRoundResultFadeTween(contentSeq, _waitingP2Group);
@@ -3021,6 +3013,39 @@ public class MainUIController : MonoBehaviour
         AddRoundResultFadeTween(contentSeq, _roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null);
         AddRoundResultFadeTween(contentSeq, _roundResultP2ScoreText);
         seq.Append(contentSeq);
+    }
+
+    void AddRoundResultTypewriterTween(Sequence seq, TMP_Text text)
+    {
+        if (seq == null || text == null) return;
+
+        PrepareRoundResultTypewriterText(text);
+        var totalCharacters = GetVisibleTextCharacterCount(text);
+        if (totalCharacters <= 0)
+        {
+            SetTextVisibleCharacters(text, 0);
+            return;
+        }
+
+        var duration = totalCharacters / Mathf.Max(0.01f, _roundResultPromptCharactersPerSecond);
+        var visibleCharacters = 0;
+        seq.Append(DOTween.To(() => visibleCharacters, value =>
+            {
+                visibleCharacters = value;
+                SetTextVisibleCharacters(text, value);
+            }, totalCharacters, duration)
+            .SetEase(Ease.Linear)
+            .SetId(this));
+        if (_roundResultContentStagger > 0f)
+            seq.AppendInterval(_roundResultContentStagger);
+    }
+
+    void PrepareRoundResultTypewriterText(TMP_Text text)
+    {
+        if (text == null) return;
+
+        SetTextAlpha(text, 1f);
+        SetTextVisibleCharacters(text, 0);
     }
 
     void AddRoundResultFadeTween(Sequence seq, TMP_Text text)
@@ -3706,6 +3731,7 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.text = GetPromptTextWithBannedLetters(_promptText);
             _promptTitleText.fontSize = 170f;
             _promptTitleText.alpha = 1f;
+            SetTextFullyVisible(_promptTitleText);
             ConfigureTopLeftRect(_promptTitleText.rectTransform, GetRoundResultPromptTopLeftPosition(), new Vector2(1400f, 220f));
         }
 
@@ -3718,6 +3744,7 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.text = GetBannedLetterRevealText();
             _promptBannedText.fontSize = 59f;
             _promptBannedText.alpha = 1f;
+            SetTextFullyVisible(_promptBannedText);
             ConfigureTopLeftRect(_promptBannedText.rectTransform, GetRoundResultBannedLabelTopLeftPosition(), new Vector2(1000f, 90f));
         }
     }
@@ -5072,6 +5099,35 @@ public class MainUIController : MonoBehaviour
             return;
 
         titleText.maxVisibleCharacters = Mathf.Max(0, visibleCharacters);
+    }
+
+    int GetVisibleTextCharacterCount(TMP_Text text)
+    {
+        if (text == null)
+            return 0;
+
+        var previousVisibleCharacters = text.maxVisibleCharacters;
+        text.maxVisibleCharacters = int.MaxValue;
+        text.ForceMeshUpdate();
+        var characterCount = text.textInfo.characterCount;
+        text.maxVisibleCharacters = previousVisibleCharacters;
+        return characterCount;
+    }
+
+    void SetTextVisibleCharacters(TMP_Text text, int visibleCharacters)
+    {
+        if (text == null)
+            return;
+
+        text.maxVisibleCharacters = Mathf.Max(0, visibleCharacters);
+    }
+
+    void SetTextFullyVisible(TMP_Text text)
+    {
+        if (text == null)
+            return;
+
+        text.maxVisibleCharacters = int.MaxValue;
     }
 
     Tween TweenHintAlpha(TMP_Text hintText, float targetAlpha, float duration)
