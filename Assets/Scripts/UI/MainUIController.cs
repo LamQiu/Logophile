@@ -329,6 +329,10 @@ public class MainUIController : MonoBehaviour
     [SerializeField] Color _gameplayP2LetterColor = new Color(0f, 0.68235296f, 0.93333334f, 1f);
     [SerializeField] Color _gameplayBannedFlashColor = new Color(1f, 0f, 0f, 1f);
     [SerializeField] float _gameplayBannedFlashDuration = 0.35f;
+    // TODO(UI): the letter-block size pop is currently too subtle or swallowed by refresh timing; revisit with a dedicated typing-pulse trigger.
+    [SerializeField] float _gameplayLetterBlockPopHeightMultiplier = 1.6f;
+    [SerializeField] float _gameplayLetterBlockPopUpDuration = 0.1f;
+    [SerializeField] float _gameplayLetterBlockSettleDuration = 0.16f;
     [SerializeField] float _gameplayFadeDuration = 0.35f;
     [SerializeField] float _gameplaySlideOffset = 36f;
     [SerializeField] float _gameplayTimerDrainPreviewDuration = 10f;
@@ -339,11 +343,14 @@ public class MainUIController : MonoBehaviour
     string _gameplayP2Word = "";
     int _gameplayP1SyncedLetterCount = -1;
     int _gameplayP2SyncedLetterCount = -1;
+    int _gameplayP1RenderedLetterCount = -1;
+    int _gameplayP2RenderedLetterCount = -1;
     bool _gameplayInputListenerRegistered;
     RoundManager _roundManagerAccelVisualSubscription;
 
     const float GameplayTimerBarFullWidth = 1620f;
-    const float GameplayLetterRowOwnerScaleY = 2.5f;
+    const float GameplayPlayerIconIdFontScale = 0.44f;
+    const float GameplayPlayerIconIdMinFontSize = 44f;
 
     [Header("Round Result Elements")]
     [SerializeField] RectTransform _roundResultElementsGroupRect;
@@ -1542,6 +1549,7 @@ public class MainUIController : MonoBehaviour
         _gameplayP2Word = string.Empty;
         _gameplayP1SyncedLetterCount = -1;
         _gameplayP2SyncedLetterCount = -1;
+        ResetGameplayLetterBlockPopState();
         RefreshGameplayLetterBlocks();
 
         _promptReceivedFromServer = false;
@@ -1828,16 +1836,16 @@ public class MainUIController : MonoBehaviour
             AddPromptEnterTween(seq, ref hasEnterTween, _promptBannedText.DOFade(1f, _promptTextFadeDuration).SetEase(_ease));
 
         seq.AppendInterval(_promptHoldBeforeRevealSeconds);
-        seq.AppendCallback(SetPromptTextForReveal);
+        seq.AppendCallback(() =>
+        {
+            SetPromptRevealSiblingOrder();
+            SetPromptTextForReveal();
+        });
         var hasRevealTween = false;
         if (_promptPromptMask != null)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptPromptMask.DOAnchorPosX(GetPromptMaskMainTargetX() + 5000f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
         if (_promptBannedMask != null && showBannedInThisShowcase)
             AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedMask.DOAnchorPosX(GetPromptMaskBannedTargetX() + 1980f, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptTitleText != null)
-            AddPromptRevealTween(seq, ref hasRevealTween, _promptTitleText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
-        if (_promptBannedText != null && showBannedInThisShowcase)
-            AddPromptRevealTween(seq, ref hasRevealTween, _promptBannedText.DOColor(_promptInkColor, _promptMaskRevealDuration).SetEase(_promptMaskRevealEase));
 
         seq.OnComplete(() =>
         {
@@ -1963,6 +1971,7 @@ public class MainUIController : MonoBehaviour
         EnsurePromptSharedView();
         EnsureGameplayElementsView();
         PrepareGameplayStart();
+        ApplyGameplayPromptTextContent();
 
         if (_gameplayElementsGroupRect != null)
             _gameplayElementsGroupRect.SetAsLastSibling();
@@ -2095,7 +2104,7 @@ public class MainUIController : MonoBehaviour
         var icon = group.GetComponent<PlayerIcon>();
         if (icon != null)
             icon.IsLocal = showLocal;
-        ConfigurePlayerIconBoxForGameplay(rect);
+        ConfigurePlayerIconBoxForGameplay(rect, shrinkIdText: false);
         ConfigurePlayerIconIndicatorForGameplay(rect, icon != null ? icon.IsLocal : showLocal);
         seq.Join(group.DOFade(1f, _roundResultTransitionDuration).SetEase(_ease));
         seq.Join(rect.DOAnchorPos(targetPosition, _roundResultTransitionDuration).SetEase(_ease));
@@ -2241,8 +2250,6 @@ public class MainUIController : MonoBehaviour
 
         if (_inputField != null)
             _inputField.DeactivateInputField();
-        if (_inputFieldContentGroup != null)
-            _inputFieldContentGroup.alpha = 0f;
 
         var panelMorphSeq = DOTween.Sequence().SetId(this);
         if (_inputFieldRect != null)
@@ -3025,7 +3032,6 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.fontSize = 184f;
             _promptTitleText.alignment = TextAlignmentOptions.Left;
             ConfigureRect(_promptTitleText.rectTransform, GetPromptTitlePosition(), new Vector2(1400f, 260f), new Vector2(0.5f, 0.5f));
-            _promptTitleText.transform.SetAsLastSibling();
         }
         if (_promptBannedText != null)
         {
@@ -3037,7 +3043,6 @@ public class MainUIController : MonoBehaviour
             _promptBannedText.fontSize = 58f;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             ConfigureRect(_promptBannedText.rectTransform, GetPromptBannedTextPosition(), new Vector2(1100f, 100f), new Vector2(0.5f, 0.5f));
-            _promptBannedText.transform.SetAsLastSibling();
         }
 
         if (_promptPromptMask != null)
@@ -3049,7 +3054,6 @@ public class MainUIController : MonoBehaviour
             _promptPromptMask.anchoredPosition = new Vector2(GetPromptMaskMainStartX(), 65f);
             _promptPromptMask.sizeDelta = new Vector2(5000f, 397f);
             _promptPromptMask.localScale = Vector3.one;
-            _promptPromptMask.transform.SetSiblingIndex(Mathf.Max(0, _promptSharedGroupRect.childCount - 3));
         }
 
         if (_promptBannedMask != null)
@@ -3061,8 +3065,9 @@ public class MainUIController : MonoBehaviour
             _promptBannedMask.anchoredPosition = new Vector2(GetPromptMaskBannedStartX(), -185f);
             _promptBannedMask.sizeDelta = new Vector2(1980f, 133f);
             _promptBannedMask.localScale = Vector3.one;
-            _promptBannedMask.transform.SetSiblingIndex(Mathf.Max(0, _promptSharedGroupRect.childCount - 3));
         }
+
+        SetPromptMaskPhaseSiblingOrder();
     }
 
     /// <summary>Mask-phase title before <see cref="SetPromptTextForReveal"/>: this round's <see cref="PromptGenerator.PromptType"/> (same spacing rule as <see cref="PromptGenerator.Prompt.ToString"/> type half), or serialized <see cref="_promptMaskText"/> if unavailable.</summary>
@@ -3086,6 +3091,30 @@ public class MainUIController : MonoBehaviour
     Vector2 GetPromptTitlePosition() => new Vector2(24f, 65f);
     Vector2 GetPromptBannedTextPosition() => new Vector2(297f, -185f);
 
+    void SetPromptMaskPhaseSiblingOrder()
+    {
+        if (_promptPromptMask != null)
+            _promptPromptMask.transform.SetAsLastSibling();
+        if (_promptBannedMask != null)
+            _promptBannedMask.transform.SetAsLastSibling();
+        if (_promptTitleText != null)
+            _promptTitleText.transform.SetAsLastSibling();
+        if (_promptBannedText != null)
+            _promptBannedText.transform.SetAsLastSibling();
+    }
+
+    void SetPromptRevealSiblingOrder()
+    {
+        if (_promptTitleText != null)
+            _promptTitleText.transform.SetAsLastSibling();
+        if (_promptBannedText != null)
+            _promptBannedText.transform.SetAsLastSibling();
+        if (_promptPromptMask != null)
+            _promptPromptMask.transform.SetAsLastSibling();
+        if (_promptBannedMask != null)
+            _promptBannedMask.transform.SetAsLastSibling();
+    }
+
     void SetPromptTextForReveal()
     {
         if (_debugPromptFlow)
@@ -3097,18 +3126,20 @@ public class MainUIController : MonoBehaviour
             _promptTitleText.overrideColorTags = false;
             var titleSource = showBanned ? GetPromptTextWithBannedLetters(_promptText) : _promptText;
             _promptTitleText.text = MainUiDisplayText(titleSource);
-            _promptTitleText.color = _promptMaskTitleColor;
+            _promptTitleText.color = _promptInkColor;
             _promptTitleText.alignment = TextAlignmentOptions.Left;
             _promptTitleText.alpha = 1f;
+            SetTextFullyVisible(_promptTitleText);
         }
         if (_promptBannedText != null)
         {
             _promptBannedText.richText = true;
             _promptBannedText.overrideColorTags = false;
             _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
-            _promptBannedText.color = _promptMaskBannedTextColor;
+            _promptBannedText.color = _promptInkColor;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
             _promptBannedText.alpha = showBanned ? 1f : 0f;
+            SetTextFullyVisible(_promptBannedText);
         }
     }
 
@@ -3290,6 +3321,7 @@ public class MainUIController : MonoBehaviour
 
         _gameplayP1SyncedLetterCount = -1;
         _gameplayP2SyncedLetterCount = -1;
+        ResetGameplayLetterBlockPopState();
         if (_gameplayP1LetterGroup != null) _gameplayP1LetterGroup.localScale = Vector3.one;
         if (_gameplayP2LetterGroup != null) _gameplayP2LetterGroup.localScale = Vector3.one;
 
@@ -3377,7 +3409,7 @@ public class MainUIController : MonoBehaviour
 
         ConfigureRoundResultElements();
         SetRoundResultPanelAlpha(0f);
-        SetRoundResultContentAlpha(0f);
+        SetRoundResultOwnedContentAlpha(0f);
         PrepareRoundResultStripesForReveal();
 
         if (_inputField != null)
@@ -3418,6 +3450,18 @@ public class MainUIController : MonoBehaviour
         SetTextAlpha(_promptBannedText, alpha);
         SetCanvasGroupAlpha(_waitingP1Group, alpha);
         SetCanvasGroupAlpha(_waitingP2Group, alpha);
+        SetTextAlpha(_roundResultP1WordText, alpha);
+        SetTextAlpha(_roundResultP2WordText, alpha);
+        SetTextAlpha(_roundResultDeathLabelText, alpha);
+        SetTextAlpha(_roundResultP1ScoreText, alpha);
+        SetTextAlpha(_roundResultP2ScoreText, alpha);
+        SetGraphicAlpha(_roundResultP1ScoreBar != null ? _roundResultP1ScoreBar.GetComponent<Graphic>() : null, alpha);
+        SetGraphicAlpha(_roundResultP2ScoreBar != null ? _roundResultP2ScoreBar.GetComponent<Graphic>() : null, alpha);
+        SetRoundResultDeathLineAlpha(alpha);
+    }
+
+    void SetRoundResultOwnedContentAlpha(float alpha)
+    {
         SetTextAlpha(_roundResultP1WordText, alpha);
         SetTextAlpha(_roundResultP2WordText, alpha);
         SetTextAlpha(_roundResultDeathLabelText, alpha);
@@ -4163,34 +4207,50 @@ public class MainUIController : MonoBehaviour
 
     Vector2 GetStandardStripeSize() => new Vector2(1800f, 20f);
 
+    void ApplyGameplayPromptTextContent()
+    {
+        if (_promptTitleText != null)
+        {
+            _promptTitleText.richText = true;
+            _promptTitleText.overrideColorTags = false;
+            _promptTitleText.color = _promptInkColor;
+            _promptTitleText.text = MainUiDisplayText(GetPromptTextWithBannedLetters(_promptText));
+            _promptTitleText.alpha = 1f;
+            SetTextFullyVisible(_promptTitleText);
+        }
+
+        if (_promptBannedText != null)
+        {
+            _promptBannedText.richText = true;
+            _promptBannedText.overrideColorTags = false;
+            _promptBannedText.color = _promptInkColor;
+            _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
+            _promptBannedText.alpha = HasPromptBannedLetters() ? 1f : 0f;
+            SetTextFullyVisible(_promptBannedText);
+        }
+    }
+
     void SetSharedPromptVisibleForGameplay(bool preserveGameplayInputSubmitLock = false)
     {
         SetOptionalGameObjectActive(_promptSharedBackground, false);
         if (_promptPromptMask != null) _promptPromptMask.gameObject.SetActive(false);
         if (_promptBannedMask != null) _promptBannedMask.gameObject.SetActive(false);
+        ApplyGameplayPromptTextContent();
 
         if (_promptTitleText != null)
         {
             _promptTitleText.alignment = TextAlignmentOptions.Left;
-            _promptTitleText.color = _promptInkColor;
-            _promptTitleText.text = MainUiDisplayText(GetPromptTextWithBannedLetters(_promptText));
             _promptTitleText.fontSize = GetGameplayPromptFontSize();
             SetCenterLeftAnchors(_promptTitleText.rectTransform);
             _promptTitleText.rectTransform.sizeDelta = GetGameplayPromptSize();
-            _promptTitleText.alpha = 1f;
             _promptTitleText.rectTransform.anchoredPosition = GetGameplayPromptPosition();
         }
         if (_promptBannedText != null)
         {
-            _promptBannedText.richText = true;
-            _promptBannedText.overrideColorTags = false;
             _promptBannedText.alignment = TextAlignmentOptions.Left;
-            _promptBannedText.color = _promptInkColor;
-            _promptBannedText.text = MainUiDisplayText(GetBannedLetterRevealText());
             _promptBannedText.fontSize = GetGameplayBannedLabelFontSize();
             SetCenterLeftAnchors(_promptBannedText.rectTransform);
             _promptBannedText.rectTransform.sizeDelta = GetGameplayBannedLabelSize();
-            _promptBannedText.alpha = HasPromptBannedLetters() ? 1f : 0f;
             _promptBannedText.rectTransform.anchoredPosition = GetGameplayBannedLabelPosition();
         }
 
@@ -4431,7 +4491,7 @@ public class MainUIController : MonoBehaviour
         var icon = group.GetComponent<PlayerIcon>();
         if (icon != null)
             icon.IsLocal = showLocal;
-        ConfigurePlayerIconBoxForGameplay(rect);
+        ConfigurePlayerIconBoxForGameplay(rect, shrinkIdText: false);
         ConfigurePlayerIconIndicatorForRoundResult(rect, icon != null ? icon.IsLocal : showLocal);
         rect.SetAsLastSibling();
     }
@@ -4516,7 +4576,7 @@ public class MainUIController : MonoBehaviour
             youText.gameObject.SetActive(false);
     }
 
-    void ConfigurePlayerIconBoxForGameplay(RectTransform playerIconRoot)
+    void ConfigurePlayerIconBoxForGameplay(RectTransform playerIconRoot, bool shrinkIdText = true)
     {
         if (playerIconRoot == null) return;
 
@@ -4535,7 +4595,9 @@ public class MainUIController : MonoBehaviour
         if (idText != null)
         {
             idText.enableAutoSizing = false;
-            idText.fontSize = Mathf.Max(51f, playerIconRoot.sizeDelta.y * 0.51f);
+            var minFontSize = shrinkIdText ? GameplayPlayerIconIdMinFontSize : 51f;
+            var fontScale = shrinkIdText ? GameplayPlayerIconIdFontScale : 0.51f;
+            idText.fontSize = Mathf.Max(minFontSize, playerIconRoot.sizeDelta.y * fontScale);
             idText.characterSpacing = 0f;
             idText.alignment = TextAlignmentOptions.Center;
             idText.margin = Vector4.zero;
@@ -4926,7 +4988,7 @@ public class MainUIController : MonoBehaviour
         EnsureGameplayElementsView();
         if (_gameplayP1LetterGroup == null) return;
         _gameplayP1SyncedLetterCount = Mathf.Max(0, lettersCount);
-        _gameplayP1LetterGroup.localScale = new Vector3(1f, isOwner ? GameplayLetterRowOwnerScaleY : 1f, 1f);
+        _gameplayP1LetterGroup.localScale = Vector3.one;
         RefreshGameplayLetterBlocks();
     }
 
@@ -4938,7 +5000,7 @@ public class MainUIController : MonoBehaviour
         EnsureGameplayElementsView();
         if (_gameplayP2LetterGroup == null) return;
         _gameplayP2SyncedLetterCount = Mathf.Max(0, lettersCount);
-        _gameplayP2LetterGroup.localScale = new Vector3(1f, isOwner ? GameplayLetterRowOwnerScaleY : 1f, 1f);
+        _gameplayP2LetterGroup.localScale = Vector3.one;
         RefreshGameplayLetterBlocks();
     }
 
@@ -4947,13 +5009,17 @@ public class MainUIController : MonoBehaviour
         var p1Count = _gameplayP1SyncedLetterCount >= 0 ? _gameplayP1SyncedLetterCount : CountLetters(_gameplayP1Word);
         var p2Count = _gameplayP2SyncedLetterCount >= 0 ? _gameplayP2SyncedLetterCount : CountLetters(_gameplayP2Word);
 
-        UpdateGameplayLetterBlockGroup(_gameplayP1LetterGroup, p1Count, p2Count, _gameplayP1LetterColor, ContainsBannedPromptLetter(_gameplayP1Word));
-        UpdateGameplayLetterBlockGroup(_gameplayP2LetterGroup, p2Count, p1Count, _gameplayP2LetterColor, ContainsBannedPromptLetter(_gameplayP2Word));
+        UpdateGameplayLetterBlockGroup(_gameplayP1LetterGroup, p1Count, p2Count, _gameplayP1LetterColor, ContainsBannedPromptLetter(_gameplayP1Word), _gameplayP1RenderedLetterCount);
+        UpdateGameplayLetterBlockGroup(_gameplayP2LetterGroup, p2Count, p1Count, _gameplayP2LetterColor, ContainsBannedPromptLetter(_gameplayP2Word), _gameplayP2RenderedLetterCount);
+        _gameplayP1RenderedLetterCount = p1Count;
+        _gameplayP2RenderedLetterCount = p2Count;
     }
 
-    void UpdateGameplayLetterBlockGroup(RectTransform parent, int count, int opposingCount, Color playerColor, bool hasBannedLetter)
+    void UpdateGameplayLetterBlockGroup(RectTransform parent, int count, int opposingCount, Color playerColor, bool hasBannedLetter, int previousCount)
     {
         if (parent == null) return;
+
+        var shouldPopNewBlocks = previousCount >= 0 && count > previousCount;
 
         for (var i = 0; i < parent.childCount; i++)
         {
@@ -4966,24 +5032,34 @@ public class MainUIController : MonoBehaviour
             if (image != null)
                 image.DOKill();
 
-            if (!isVisible) continue;
+            if (!isVisible)
+            {
+                child.DOKill();
+                continue;
+            }
 
-            ConfigureGameplayLetterBlockRect(child, i);
+            var shouldPop = shouldPopNewBlocks && i >= previousCount;
+            ConfigureGameplayLetterBlockRect(child, i, resetSizeTween: !shouldPop);
             if (image != null)
                 ApplyGameplayLetterBlockColor(image, i, count, opposingCount, playerColor, hasBannedLetter);
+            if (shouldPop)
+                PlayGameplayLetterBlockPop(child);
         }
 
         for (var i = parent.childCount; i < count; i++)
         {
             var block = GetOrCreateImage($"LetterBlock{i + 1}", parent, _gameplayLetterNeutralColor).rect;
-            ConfigureGameplayLetterBlockRect(block, i);
+            var shouldPop = shouldPopNewBlocks && i >= previousCount;
+            ConfigureGameplayLetterBlockRect(block, i, resetSizeTween: !shouldPop);
             var image = block != null ? block.GetComponent<Image>() : null;
             if (image != null)
                 ApplyGameplayLetterBlockColor(image, i, count, opposingCount, playerColor, hasBannedLetter);
+            if (shouldPop)
+                PlayGameplayLetterBlockPop(block);
         }
     }
 
-    void ConfigureGameplayLetterBlockRect(RectTransform block, int index)
+    void ConfigureGameplayLetterBlockRect(RectTransform block, int index, bool resetSizeTween = true)
     {
         if (block == null) return;
 
@@ -4991,8 +5067,31 @@ public class MainUIController : MonoBehaviour
         block.anchorMax = new Vector2(0f, 0.5f);
         block.pivot = new Vector2(0f, 0.5f);
         block.anchoredPosition = new Vector2(index * _gameplayLetterBlockSpacing, 0f);
-        block.sizeDelta = _gameplayLetterBlockSize;
+        if (resetSizeTween && !DOTween.IsTweening(block))
+            block.sizeDelta = _gameplayLetterBlockSize;
         block.localScale = Vector3.one;
+    }
+
+    void PlayGameplayLetterBlockPop(RectTransform block)
+    {
+        if (block == null) return;
+
+        block.DOKill();
+        block.sizeDelta = _gameplayLetterBlockSize;
+        var poppedSize = new Vector2(
+            _gameplayLetterBlockSize.x,
+            _gameplayLetterBlockSize.y * Mathf.Max(1f, _gameplayLetterBlockPopHeightMultiplier));
+
+        DOTween.Sequence()
+            .SetId(this)
+            .Append(block.DOSizeDelta(poppedSize, _gameplayLetterBlockPopUpDuration).SetEase(Ease.OutQuad))
+            .Append(block.DOSizeDelta(_gameplayLetterBlockSize, _gameplayLetterBlockSettleDuration).SetEase(Ease.OutBack));
+    }
+
+    void ResetGameplayLetterBlockPopState()
+    {
+        _gameplayP1RenderedLetterCount = -1;
+        _gameplayP2RenderedLetterCount = -1;
     }
 
     void ApplyGameplayLetterBlockColor(Image image, int index, int count, int opposingCount, Color playerColor, bool hasBannedLetter)
