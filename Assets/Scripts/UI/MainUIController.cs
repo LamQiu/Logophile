@@ -419,6 +419,8 @@ public class MainUIController : MonoBehaviour
     bool _waitingP2LobbyRevealCompleted;
     bool _waitingLobbyCallbackRegistered;
     bool _waitingCommandListenerRegistered;
+    /// <summary>True after the local player submitted <c>ready</c> in Waiting; keeps shared input showing "ready" but non-interactive, and prevents <see cref="WaitingRevealRoutine"/> from re-focusing the field.</summary>
+    bool _waitingReadySubmitted;
     Vector2 _startTitleInitialAnchoredPosition;
     bool _hasStartTitleInitialAnchoredPosition;
     Color _startHintInitialColor;
@@ -1105,6 +1107,7 @@ public class MainUIController : MonoBehaviour
         // InputField: enable typing for waiting commands ("ready")
         if (UI.UIManager.Instance != null)
         {
+            _waitingReadySubmitted = false;
             UI.UIManager.Instance.SetAnswerInputEnabled(true);
             UI.UIManager.Instance.SetAnswerInputReadOnly(false);
             UI.UIManager.Instance.ClearAnswerInputField();
@@ -1796,6 +1799,7 @@ public class MainUIController : MonoBehaviour
             return;
         }
 
+        StopMusicForPromptShowcaseEntry();
         TransitionToConfiguredState(MainUIState.PromptShowcase);
     }
 
@@ -1803,6 +1807,7 @@ public class MainUIController : MonoBehaviour
     {
         DOTween.Kill(this);
         StopAllCoroutines();
+        StopMusicForPromptShowcaseEntry();
         if (_debugPromptFlow)
             Debug.Log("[MainUIController] TransitionFromLoadingToPromptShowcase BEGIN (killed tweens/coroutines)");
 
@@ -2487,9 +2492,7 @@ public class MainUIController : MonoBehaviour
             yield return new WaitUntil(() => !_waitingHintTypewriter.IsPlaying);
         }
 
-        // Show placeholder ("ready") in the bottom strip but disable typing.
-        // "ready" is captured elsewhere (key listener), the InputField is now
-        // purely a visual element.
+        // Show placeholder ("ready") in the bottom strip; shared field becomes the command line (submit listener).
         if (_inputFieldPlaceholderText != null)
         {
             _inputFieldPlaceholderText.text = MainUiDisplayText(_waitingPlaceholder);
@@ -2499,7 +2502,10 @@ public class MainUIController : MonoBehaviour
             _inputFieldContentGroup.DOFade(1f, _waitingContentFadeDuration).SetEase(_ease).SetId(this);
         UI.UIManager.Instance?.SetAnswerInputEnabled(true);
         UI.UIManager.Instance?.SetAnswerInputReadOnly(false);
-        UI.UIManager.Instance?.FocusAnswerInputField();
+        if (_waitingReadySubmitted)
+            ApplyWaitingReadyLockedSharedInputDisplay();
+        else
+            UI.UIManager.Instance?.FocusAnswerInputField();
     }
 
     IEnumerator RoomIdRevealRoutine(float delayBeforeReveal)
@@ -2628,6 +2634,7 @@ public class MainUIController : MonoBehaviour
         _createLoadingTextCoroutine = null;
         _createLoadingToWaitingCoroutine = null;
         _createLoadingVisualActive = false;
+        _waitingReadySubmitted = false;
 
         _cmykBar.pivot = new Vector2(0.5f, 0.5f);
         _cmykBar.anchoredPosition = _initBarPos;
@@ -4678,6 +4685,26 @@ public class MainUIController : MonoBehaviour
         else UnregisterWaitingCommandInputListener();
     }
 
+    /// <summary>TMP_InputField clears text on Enter/submit by default — keep <see cref="_waitingPlaceholder"/> visible and non-interactive after ready.</summary>
+    void ApplyWaitingReadyLockedSharedInputDisplay()
+    {
+        if (UI.UIManager.Instance == null) return;
+        var field = UI.UIManager.Instance.AnswerInputField;
+        if (field == null) return;
+
+        field.SetTextWithoutNotify(MainUiDisplayText(_waitingPlaceholder));
+        UI.UIManager.Instance.UpdateAnswerInputFieldInteractability(false);
+    }
+
+    IEnumerator CoEnsureWaitingReadyTextAfterSubmitDelayed()
+    {
+        yield return null;
+        yield return null;
+        if (!_waitingReadySubmitted || _currentState != MainUIState.Waiting)
+            yield break;
+        ApplyWaitingReadyLockedSharedInputDisplay();
+    }
+
     void OnWaitingCommandSubmit(string content)
     {
         if (_debugSharedCommandInput)
@@ -4697,9 +4724,7 @@ public class MainUIController : MonoBehaviour
             return;
         }
 
-        if (_debugSharedCommandInput) Debug.Log("[MainUIController] READY matched -> clear/focus + send ready rpc");
-        UI.UIManager.Instance?.ClearAnswerInputField();
-        UI.UIManager.Instance?.FocusAnswerInputField();
+        if (_debugSharedCommandInput) Debug.Log("[MainUIController] READY matched -> disable shared input + send ready rpc");
 
         var gm = GameManager.Instance;
         if (gm == null)
@@ -4714,6 +4739,10 @@ public class MainUIController : MonoBehaviour
             Debug.LogWarning("MainUIController: NetworkManager.Singleton missing; cannot mark ready.");
             return;
         }
+
+        _waitingReadySubmitted = true;
+        ApplyWaitingReadyLockedSharedInputDisplay();
+        StartCoroutine(CoEnsureWaitingReadyTextAfterSubmitDelayed());
 
         gm.SetClientReadyServerRpc(nm.LocalClientId, true);
     }
@@ -4877,6 +4906,12 @@ public class MainUIController : MonoBehaviour
             _gameplayP1SyncedLetterCount = -1;
             RefreshGameplayLetterBlocks();
         }
+    }
+
+    void StopMusicForPromptShowcaseEntry()
+    {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.StopMusicForPromptShowcase();
     }
 
     void PlayTypingMusicOnEnteredGameplay()

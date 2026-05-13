@@ -61,6 +61,15 @@ public class AudioManager : Singleton<AudioManager>
         musicEventInstance.release();
     }
 
+    /// <summary>
+    /// Entering Prompt Showcase: placeholder hook (currently stops active music). Replace with dedicated FMOD logic later if needed.
+    /// Gameplay still starts typing music via <see cref="PlayTypingMusic"/>.
+    /// </summary>
+    public void StopMusicForPromptShowcase()
+    {
+        StopMusic();
+    }
+
     public void PlayMainMenuMusic()
     {
         StopMusic();
