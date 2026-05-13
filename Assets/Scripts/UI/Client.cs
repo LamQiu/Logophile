@@ -439,17 +439,25 @@ public class Client : NetworkBehaviour
         return TrimRemove(cachedAnswer);
     }
 
-    public bool TrySubmitAnswer(string tmpSubmitLine = null)
+    /// <param name="forRoundTimeout">When true (round timer expiry), run the same checks as a manual submit; if anything fails or the answer is empty, still notify the server with an empty string.</param>
+    public bool TrySubmitAnswer(string tmpSubmitLine = null, bool forRoundTimeout = false)
     {
         var answer = ResolveAnswerForSubmitAttempt(tmpSubmitLine, m_answer);
         m_answer = answer;
 
         if (string.IsNullOrEmpty(answer))
+        {
+            if (forRoundTimeout)
+                SubmitEmptyAnswerForRoundTimeout();
             return false;
+        }
+
         bool isAnswerValidInDictionary = _wordChecker.CheckWordDictionaryValidity(answer);
         if (!isAnswerValidInDictionary)
         {
             HintText = $"invalid word \"{answer}\". try again";
+            if (forRoundTimeout)
+                SubmitEmptyAnswerForRoundTimeout();
             return false;
         }
 
@@ -457,6 +465,8 @@ public class Client : NetworkBehaviour
         if (!isAnswerValidForCurrentPrompt)
         {
             HintText = $"word \"{answer}\" doesn't match the prompt. try again";
+            if (forRoundTimeout)
+                SubmitEmptyAnswerForRoundTimeout();
             return false;
         }
 
@@ -464,13 +474,17 @@ public class Client : NetworkBehaviour
         if (isAnswerUsed)
         {
             HintText = "word already used";
+            if (forRoundTimeout)
+                SubmitEmptyAnswerForRoundTimeout();
             return false;
         }
-        
+
         bool doesAnswerContainBannedLetter = _roundManager.HasBannedLetterInAnswer(answer);
         if (doesAnswerContainBannedLetter)
         {
             HintText = "word contains banned letter";
+            if (forRoundTimeout)
+                SubmitEmptyAnswerForRoundTimeout();
             return false;
         }
 
@@ -485,6 +499,23 @@ public class Client : NetworkBehaviour
         AudioManager.Instance.PlaySubmitSfxServerRpc();
 
         return true;
+    }
+
+    void SubmitEmptyAnswerForRoundTimeout()
+    {
+        m_answer = "";
+        m_answerCheckedValid = false;
+        LetterCount.Value = 0;
+        AnswerCheckedValid.Value = false;
+        UpdateServerAnswerServerRpc("");
+        Debug.Log($"SubmitAnswerServerRpc (timeout empty) {OwnerClientId}");
+        _roundManager.SubmitAnswerServerRpc(OwnerClientId, string.Empty);
+
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.UpdateAnswerInputField("");
+            UIManager.Instance.SyncMainUiGameplayLetterRowsAfterLocalAnswerCleared();
+        }
     }
 
     #endregion

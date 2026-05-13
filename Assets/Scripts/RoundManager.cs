@@ -644,10 +644,7 @@ public class RoundManager : NetworkBehaviour
             if (!client.IsOwner) continue;
             if (client.AnswerCheckedValid.Value) continue;
 
-            if (!client.TrySubmitAnswer())
-            {
-                client.LetterCount.Value = 0;
-            }
+            client.TrySubmitAnswer(forRoundTimeout: true);
         }
     }
 
