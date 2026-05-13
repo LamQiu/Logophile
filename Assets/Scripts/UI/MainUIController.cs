@@ -244,6 +244,10 @@ public class MainUIController : MonoBehaviour
     [SerializeField] RectTransform _loadingScreenRect;
     [SerializeField] Image _loadingScreenImage;
     [SerializeField] CanvasGroup _loadingScreenGroup;
+    [SerializeField] string _createLoadingText = "loading...";
+    [SerializeField] float _createLoadingCharactersPerSecond = 30f;
+    [SerializeField] float _createLoadingFullTextHoldSeconds = 0.45f;
+    [SerializeField] float _createLoadingDotlessHoldSeconds = 0.25f;
     [SerializeField] float _loadingWipeDuration = 1.2f;
     [SerializeField] Ease _loadingWipeEase = Ease.OutQuad;
     [SerializeField] float _loadingAutoPromptDelay = 2f;
@@ -402,6 +406,7 @@ public class MainUIController : MonoBehaviour
     [SerializeField] float _initSkew = 60f;
     [SerializeField] Vector2 _initInputFieldAnchoredPos;
     [SerializeField] Vector2 _initInputFieldSize;
+    [SerializeField] Vector2 _initInputFieldPivot = new Vector2(0.5f, 0.5f);
     [SerializeField] bool _initialCaptured;
 
     bool _waitingP2LobbyRevealCompleted;
@@ -411,6 +416,12 @@ public class MainUIController : MonoBehaviour
     bool _hasStartTitleInitialAnchoredPosition;
     Color _startHintInitialColor;
     bool _hasStartHintInitialColor;
+    Color _initialInputTextColor;
+    TextAlignmentOptions _initialInputTextAlignment;
+    bool _hasInitialInputTextStyle;
+    bool _createLoadingVisualActive;
+    Coroutine _createLoadingTextCoroutine;
+    Coroutine _createLoadingToWaitingCoroutine;
 
     /// <summary>Forces lowercase on all copy driven through Main UI (prompts, placeholders, round copy, hints).</summary>
     static string MainUiDisplayText(string value)
@@ -425,6 +436,7 @@ public class MainUIController : MonoBehaviour
         DisableSceneOwnedGeneratedUiOrphans();
         ApplySingleLineOverflowToOwnedText();
         ApplyLowercaseToInitialPrefabCopy();
+        CaptureInitialInputTextStyle();
         if (!_initialCaptured) CaptureInitialState();
         EnsureInitialInputFieldPositionCaptured();
         SetStateVisibilityImmediate(_currentState);
@@ -448,6 +460,43 @@ public class MainUIController : MonoBehaviour
     {
         if (_inputFieldRect != null && _initInputFieldAnchoredPos == Vector2.zero)
             _initInputFieldAnchoredPos = _inputFieldRect.anchoredPosition;
+        if (_inputFieldRect != null)
+            _initInputFieldPivot = _inputFieldRect.pivot;
+    }
+
+    void CaptureInitialInputTextStyle()
+    {
+        if (_hasInitialInputTextStyle || _inputField == null || _inputField.textComponent == null)
+            return;
+
+        _initialInputTextColor = _inputField.textComponent.color;
+        _initialInputTextAlignment = _inputField.textComponent.alignment;
+        _hasInitialInputTextStyle = true;
+    }
+
+    void RestoreInitialInputTextStyle()
+    {
+        if (!_hasInitialInputTextStyle || _inputField == null || _inputField.textComponent == null)
+            return;
+
+        _inputField.textComponent.color = _initialInputTextColor;
+        _inputField.textComponent.alignment = _initialInputTextAlignment;
+        SetTextFullyVisible(_inputField.textComponent);
+    }
+
+    void RestoreInputFieldInitialFootprint(bool clearText)
+    {
+        if (_inputFieldRect != null)
+        {
+            _inputFieldRect.pivot = _initInputFieldPivot;
+            _inputFieldRect.anchoredPosition = _initInputFieldAnchoredPos;
+            _inputFieldRect.sizeDelta = _initInputFieldSize;
+        }
+
+        if (clearText && _inputField != null)
+            _inputField.SetTextWithoutNotify(string.Empty);
+
+        RestoreInitialInputTextStyle();
     }
 
     void ApplySingleLineOverflowToOwnedText()
@@ -750,6 +799,7 @@ public class MainUIController : MonoBehaviour
         {
             _initInputFieldAnchoredPos = _inputFieldRect.anchoredPosition;
             _initInputFieldSize = _inputFieldRect.sizeDelta;
+            _initInputFieldPivot = _inputFieldRect.pivot;
         }
         if (_decorativeLines != null)
         {
@@ -998,6 +1048,28 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Waiting")]
     public void TransitionToWaiting(string sessionRoomNameForWaitingRoomIdLine = null)
     {
+        if (_createLoadingVisualActive && _currentState == MainUIState.Loading)
+        {
+            if (_createLoadingToWaitingCoroutine != null)
+                StopCoroutine(_createLoadingToWaitingCoroutine);
+            _createLoadingToWaitingCoroutine = StartCoroutine(TransitionFromCreateLoadingToWaitingRoutine(sessionRoomNameForWaitingRoomIdLine));
+            return;
+        }
+
+        TransitionToWaitingAfterCreateLoadingErase(sessionRoomNameForWaitingRoomIdLine, false);
+    }
+
+    IEnumerator TransitionFromCreateLoadingToWaitingRoutine(string sessionRoomNameForWaitingRoomIdLine)
+    {
+        DOTween.Complete(this);
+        StopCreateLoadingTextLoop();
+        yield return EraseCreateLoadingTextRoutine();
+        _createLoadingToWaitingCoroutine = null;
+        TransitionToWaitingAfterCreateLoadingErase(sessionRoomNameForWaitingRoomIdLine, true);
+    }
+
+    void TransitionToWaitingAfterCreateLoadingErase(string sessionRoomNameForWaitingRoomIdLine, bool fromCreateLoading)
+    {
         DOTween.Kill(this);
         StopAllCoroutines();
 
@@ -1006,7 +1078,10 @@ public class MainUIController : MonoBehaviour
         ApplyWaitingRoomIdTypewriterLine(sessionRoomNameForWaitingRoomIdLine);
 
         var seq = DOTween.Sequence().SetId(this);
-        FadeStateDifference(seq, _currentState, MainUIState.Waiting);
+        if (fromCreateLoading)
+            PrepareCreateLoadingWaitingHandoffState();
+        else
+            FadeStateDifference(seq, _currentState, MainUIState.Waiting);
 
         // Decorative lines: move to waiting (top stacked) positions
         if (_decorativeLines != null)
@@ -1027,14 +1102,25 @@ public class MainUIController : MonoBehaviour
             UI.UIManager.Instance.SetAnswerInputReadOnly(false);
             UI.UIManager.Instance.ClearAnswerInputField();
         }
-        if (_inputFieldContentGroup != null)
+        if (_inputFieldContentGroup != null && !fromCreateLoading)
             seq.Join(_inputFieldContentGroup.DOFade(0f, _fadeOutDuration).SetEase(_ease));
+
+        if (fromCreateLoading)
+            AppendCreateLoadingInputHandoffToWaiting(seq);
 
         // Black panel: starts at the InputField footprint, grows up to target size
         if (_waitingPanel != null)
         {
-            _waitingPanel.anchoredPosition = GetWaitingPanelStartPosition();
-            _waitingPanel.sizeDelta = _waitingPanelStartSize;
+            if (fromCreateLoading)
+            {
+                MatchRectVisual(_waitingPanel, _inputFieldRect);
+                seq.Join(_waitingPanel.DOAnchorPos(GetWaitingPanelStartPosition(), _duration).SetEase(_ease));
+            }
+            else
+            {
+                _waitingPanel.anchoredPosition = GetWaitingPanelStartPosition();
+                _waitingPanel.sizeDelta = _waitingPanelStartSize;
+            }
             seq.Join(_waitingPanel.DOSizeDelta(_waitingPanelTargetSize, _duration).SetEase(_ease));
         }
 
@@ -1053,6 +1139,9 @@ public class MainUIController : MonoBehaviour
 
         TryRegisterWaitingLobbyCallback();
         RegisterWaitingCommandInputListener();
+        if (fromCreateLoading)
+            seq.OnComplete(FinishCreateLoadingInputHandoffToWaiting);
+        _createLoadingVisualActive = false;
         StartCoroutine(WaitingRevealRoutine());
     }
 
@@ -1069,6 +1158,12 @@ public class MainUIController : MonoBehaviour
     [ContextMenu("Transition To Loading")]
     public void TransitionToLoading()
     {
+        if (_currentState == MainUIState.Start)
+        {
+            TransitionFromStartToCreateLoading();
+            return;
+        }
+
         if (_currentState == MainUIState.Waiting && _loadingScreenRect != null && _loadingScreenGroup != null)
         {
             TransitionFromWaitingToLoading();
@@ -1076,6 +1171,350 @@ public class MainUIController : MonoBehaviour
         }
 
         TransitionToConfiguredState(MainUIState.Loading);
+    }
+
+    void TransitionFromStartToCreateLoading()
+    {
+        DOTween.Kill(this);
+        StopCreateLoadingTextLoop();
+        StopAllCoroutines();
+        _createLoadingToWaitingCoroutine = null;
+
+        if (_hintCycler != null)
+            _hintCycler.StopCycling();
+
+        DismissLoadingOverlayImmediate();
+        _currentState = MainUIState.Loading;
+        _createLoadingVisualActive = true;
+        _loadingHoldStartUnscaledTime = Time.unscaledTime;
+        RefreshPromptCalibrationOverlay();
+        SyncRoomIdScreenWithUIManager(MainUIState.Loading);
+        UpdateWaitingCommandListenerForState(MainUIState.Loading);
+
+        PrepareCreateLoadingInputPanel();
+        PrepareCreateLoadingStripes();
+
+        var seq = DOTween.Sequence().SetId(this);
+        AppendFadeOutStartGroupsForCreateLoading(seq);
+
+        var targetSize = GetCreateLoadingPanelSize();
+        var targetPosition = GetCreateLoadingPanelPosition(targetSize);
+        if (_inputFieldRect != null)
+        {
+            seq.Join(_inputFieldRect.DOAnchorPos(targetPosition, _duration).SetEase(_ease));
+            seq.Join(_inputFieldRect.DOSizeDelta(targetSize, _duration).SetEase(_ease));
+        }
+
+        if (_decorativeLines != null)
+        {
+            for (var i = 0; i < _decorativeLines.Length; i++)
+            {
+                var line = _decorativeLines[i];
+                if (line?.rect == null) continue;
+                seq.Join(line.rect.DOAnchorPos(GetCreateLoadingStripePosition(line, i), _duration).SetEase(_ease));
+                seq.Join(line.rect.DOSizeDelta(line.waitingSizeDelta, _duration).SetEase(_ease));
+            }
+        }
+
+        if (_inputFieldContentGroup != null)
+            _inputFieldContentGroup.alpha = 1f;
+
+        seq.OnComplete(() =>
+        {
+            _currentState = MainUIState.Loading;
+            _createLoadingVisualActive = true;
+            _loadingHoldStartUnscaledTime = Time.unscaledTime;
+            RefreshPromptCalibrationOverlay();
+            SyncRoomIdScreenWithUIManager(MainUIState.Loading);
+            UpdateWaitingCommandListenerForState(MainUIState.Loading);
+            StartCreateLoadingTextLoop();
+        });
+    }
+
+    void AppendCreateLoadingInputHandoffToWaiting(Sequence seq)
+    {
+        if (seq == null) return;
+
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.DOKill(false);
+            inputGroup.alpha = 1f;
+            inputGroup.interactable = false;
+            inputGroup.blocksRaycasts = false;
+        }
+    }
+
+    void StartCreateLoadingTextLoop()
+    {
+        StopCreateLoadingTextLoop();
+        _createLoadingTextCoroutine = StartCoroutine(CreateLoadingTextLoopRoutine());
+    }
+
+    void StopCreateLoadingTextLoop()
+    {
+        if (_createLoadingTextCoroutine == null) return;
+
+        StopCoroutine(_createLoadingTextCoroutine);
+        _createLoadingTextCoroutine = null;
+    }
+
+    IEnumerator CreateLoadingTextLoopRoutine()
+    {
+        var text = GetCreateLoadingTextComponent();
+        if (text == null)
+            yield break;
+
+        var fullText = MainUiDisplayText(_createLoadingText);
+        var dotlessVisibleCharacters = GetCreateLoadingDotlessVisibleCharacterCount(text, fullText);
+        var fullVisibleCharacters = GetVisibleTextCharacterCount(text);
+
+        yield return TweenVisibleCharactersRoutine(text, 0, fullVisibleCharacters);
+
+        while (true)
+        {
+            yield return new WaitForSecondsRealtime(Mathf.Max(0f, _createLoadingFullTextHoldSeconds));
+            yield return TweenVisibleCharactersRoutine(text, fullVisibleCharacters, dotlessVisibleCharacters);
+            yield return new WaitForSecondsRealtime(Mathf.Max(0f, _createLoadingDotlessHoldSeconds));
+            yield return TweenVisibleCharactersRoutine(text, dotlessVisibleCharacters, fullVisibleCharacters);
+        }
+    }
+
+    IEnumerator EraseCreateLoadingTextRoutine()
+    {
+        var text = GetCreateLoadingTextComponent();
+        if (text == null)
+            yield break;
+
+        yield return TweenVisibleCharactersRoutine(text, text.maxVisibleCharacters, 0);
+    }
+
+    IEnumerator TweenVisibleCharactersRoutine(TMP_Text text, int from, int to)
+    {
+        if (text == null)
+            yield break;
+
+        from = Mathf.Clamp(from, 0, GetVisibleTextCharacterCount(text));
+        to = Mathf.Clamp(to, 0, GetVisibleTextCharacterCount(text));
+        SetTextVisibleCharacters(text, from);
+        if (from == to)
+            yield break;
+
+        var step = from < to ? 1 : -1;
+        var secondsPerCharacter = 1f / Mathf.Max(0.01f, _createLoadingCharactersPerSecond);
+        for (var visibleCharacters = from + step; step > 0 ? visibleCharacters <= to : visibleCharacters >= to; visibleCharacters += step)
+        {
+            SetTextVisibleCharacters(text, visibleCharacters);
+            yield return new WaitForSecondsRealtime(secondsPerCharacter);
+        }
+    }
+
+    TMP_Text GetCreateLoadingTextComponent() => _inputField != null ? _inputField.textComponent : null;
+
+    int GetCreateLoadingDotlessVisibleCharacterCount(TMP_Text text, string fullText)
+    {
+        if (text == null)
+            return 0;
+
+        var dotCount = 0;
+        for (var i = fullText.Length - 1; i >= 0 && fullText[i] == '.'; i--)
+            dotCount++;
+
+        return Mathf.Max(0, GetVisibleTextCharacterCount(text) - dotCount);
+    }
+
+    void PrepareCreateLoadingWaitingHandoffState()
+    {
+        SetCanvasGroupsForCreateLoadingWaitingHandoff();
+        _currentState = MainUIState.Waiting;
+        RefreshPromptCalibrationOverlay();
+        SyncRoomIdScreenWithUIManager(MainUIState.Waiting);
+        UpdateWaitingCommandListenerForState(MainUIState.Waiting);
+    }
+
+    void SetCanvasGroupsForCreateLoadingWaitingHandoff()
+    {
+        var waitingVisibleGroups = GetVisibleGroups(MainUIState.Waiting);
+        foreach (var group in GetAllStateGroups())
+        {
+            if (group == null) continue;
+
+            group.DOKill(false);
+            var shouldShow = ContainsGroup(waitingVisibleGroups, group) && !IsManuallyRevealed(MainUIState.Waiting, group);
+            group.alpha = shouldShow ? 1f : 0f;
+            group.interactable = shouldShow;
+            group.blocksRaycasts = shouldShow;
+        }
+
+        if (_loadingScreenGroup != null)
+        {
+            _loadingScreenGroup.DOKill(false);
+            _loadingScreenGroup.alpha = 0f;
+            _loadingScreenGroup.interactable = false;
+            _loadingScreenGroup.blocksRaycasts = false;
+        }
+
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.DOKill(false);
+            inputGroup.alpha = 1f;
+            inputGroup.interactable = false;
+            inputGroup.blocksRaycasts = false;
+        }
+
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            stripeGroup.DOKill(false);
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+        }
+    }
+
+    void FinishCreateLoadingInputHandoffToWaiting()
+    {
+        RestoreInputFieldInitialFootprint(clearText: true);
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.alpha = 1f;
+            inputGroup.interactable = true;
+            inputGroup.blocksRaycasts = true;
+        }
+        if (_inputField != null)
+        {
+            _inputField.enabled = true;
+            _inputField.readOnly = false;
+            _inputField.interactable = true;
+        }
+    }
+
+    void PrepareCreateLoadingInputPanel()
+    {
+        if (_inputField != null)
+        {
+            _inputField.enabled = true;
+            _inputField.interactable = false;
+            _inputField.readOnly = true;
+            _inputField.DeactivateInputField();
+            _inputField.SetTextWithoutNotify(MainUiDisplayText(_createLoadingText));
+            if (_inputField.targetGraphic != null)
+                _inputField.targetGraphic.color = _promptInkColor;
+            if (_inputField.textComponent != null)
+            {
+                _inputField.textComponent.color = _promptPaperColor;
+                _inputField.textComponent.alignment = TextAlignmentOptions.Left;
+                ApplySingleLineOverflow(_inputField.textComponent);
+                SetTextVisibleCharacters(_inputField.textComponent, 0);
+            }
+        }
+
+        if (_inputFieldPlaceholderText != null)
+            _inputFieldPlaceholderText.text = string.Empty;
+
+        if (_inputFieldContentGroup != null)
+        {
+            _inputFieldContentGroup.DOKill(false);
+            _inputFieldContentGroup.alpha = 1f;
+            _inputFieldContentGroup.interactable = false;
+            _inputFieldContentGroup.blocksRaycasts = false;
+        }
+
+        var inputGroup = GetInputFieldStateGroup();
+        if (inputGroup != null)
+        {
+            inputGroup.DOKill(false);
+            inputGroup.alpha = 1f;
+            inputGroup.interactable = false;
+            inputGroup.blocksRaycasts = false;
+        }
+
+        if (_inputFieldRect != null)
+            SetPivotKeepingVisualPosition(_inputFieldRect, new Vector2(0.5f, 0f));
+    }
+
+    void PrepareCreateLoadingStripes()
+    {
+        if (_decorativeLines == null) return;
+
+        var stripeGroup = GetDecorativeLineStateGroup();
+        if (stripeGroup != null)
+        {
+            stripeGroup.DOKill(false);
+            stripeGroup.alpha = 1f;
+            stripeGroup.interactable = false;
+            stripeGroup.blocksRaycasts = false;
+            if (stripeGroup.transform is RectTransform stripeRect)
+                stripeRect.SetAsLastSibling();
+        }
+
+        for (var i = 0; i < _decorativeLines.Length; i++)
+        {
+            var line = _decorativeLines[i];
+            if (line?.rect == null) continue;
+            line.rect.gameObject.SetActive(true);
+            var graphic = line.rect.GetComponent<Graphic>();
+            if (graphic != null)
+            {
+                graphic.color = GetStandardStripeColor(i);
+                graphic.raycastTarget = false;
+            }
+        }
+    }
+
+    void AppendFadeOutStartGroupsForCreateLoading(Sequence seq)
+    {
+        if (seq == null) return;
+
+        var keepInput = GetInputFieldStateGroup();
+        var keepStripes = GetDecorativeLineStateGroup();
+        var phase = DOTween.Sequence().SetId(this);
+        var any = false;
+
+        foreach (var group in GetVisibleGroups(MainUIState.Start))
+        {
+            if (group == null || ReferenceEquals(group, keepInput) || ReferenceEquals(group, keepStripes))
+                continue;
+
+            group.DOKill(false);
+            var tween = group.DOFade(0f, _fadeOutDuration).SetEase(_ease);
+            if (!any)
+            {
+                phase.Append(tween);
+                any = true;
+            }
+            else phase.Join(tween);
+        }
+
+        if (any)
+            seq.Join(phase);
+    }
+
+    Vector2 GetCreateLoadingPanelSize()
+    {
+        if (_waitingPanelTargetSize.x > 0f && _waitingPanelTargetSize.y > 0f)
+            return new Vector2(_waitingPanelTargetSize.x, _waitingPanelTargetSize.y + Mathf.Max(0f, _waitingPanelYOffset));
+
+        var stripeSize = GetStandardStripeSize();
+        return new Vector2(stripeSize.x, Mathf.Max(_initInputFieldSize.y, 846f) + Mathf.Max(0f, _waitingPanelYOffset));
+    }
+
+    Vector2 GetCreateLoadingPanelPosition(Vector2 targetSize)
+    {
+        return GetAnchoredPositionMatchingReferenceBottom(_inputFieldRect, _waitingPanel, GetWaitingInputFieldBottomPosition(), _waitingPanelStartSize, targetSize);
+    }
+
+    Vector2 GetCreateLoadingStripePosition(LineTarget line, int index)
+    {
+        return GetWaitingLineTargetPosition(line, index);
+    }
+
+    Color GetStandardStripeColor(int index)
+    {
+        var colorIndex = Mathf.Clamp(((_decorativeLines?.Length ?? 3) - 1) - index, 0, 2);
+        return GetRoundResultStripeColor(colorIndex);
     }
 
     /// <summary>
@@ -1115,6 +1554,9 @@ public class MainUIController : MonoBehaviour
     {
         DOTween.Kill(this);
         StopAllCoroutines();
+        _createLoadingTextCoroutine = null;
+        _createLoadingToWaitingCoroutine = null;
+        _createLoadingVisualActive = false;
         UnsubscribeRoundTimerAcceleratedVisual();
 
         if (_deferredPromptShowcaseCoroutine != null)
@@ -2176,6 +2618,9 @@ public class MainUIController : MonoBehaviour
     {
         DOTween.Kill(this);
         StopAllCoroutines();
+        _createLoadingTextCoroutine = null;
+        _createLoadingToWaitingCoroutine = null;
+        _createLoadingVisualActive = false;
 
         _cmykBar.pivot = new Vector2(0.5f, 0.5f);
         _cmykBar.anchoredPosition = _initBarPos;
@@ -2189,11 +2634,7 @@ public class MainUIController : MonoBehaviour
         _graphicK.Skew = _initSkew;
 
         if (_inputField != null) { _inputField.enabled = true; _inputField.readOnly = false; }
-        if (_inputFieldRect != null)
-        {
-            _inputFieldRect.anchoredPosition = _initInputFieldAnchoredPos;
-            _inputFieldRect.sizeDelta = _initInputFieldSize;
-        }
+        RestoreInputFieldInitialFootprint(clearText: true);
         if (_inputFieldContentGroup != null) _inputFieldContentGroup.alpha = 1f;
 
         ApplyStartDecorativeLineLayoutImmediate();
@@ -3514,6 +3955,7 @@ public class MainUIController : MonoBehaviour
     float GetGameplayBannedLabelFontSize() => 52f;
     Vector2 GetGameplayInputFieldPosition() => new Vector2(0f, -420f);
     Vector2 GetGameplayInputFieldSize() => new Vector2(1800f, 120f);
+    Vector2 GetWaitingInputFieldBottomPosition() => _waitingPanelStartAnchoredPos;
     Vector2 GetWaitingPanelStartPosition() => _waitingPanelStartAnchoredPos + new Vector2(0f, _waitingPanelYOffset);
     void ApplyStartDecorativeLineLayoutImmediate()
     {
@@ -4615,6 +5057,57 @@ public class MainUIController : MonoBehaviour
         rect.anchoredPosition = anchoredPosition;
         rect.sizeDelta = sizeDelta;
         rect.localScale = Vector3.one;
+    }
+
+    void MatchRectVisual(RectTransform target, RectTransform source)
+    {
+        if (target == null || source == null) return;
+
+        var size = source.sizeDelta;
+        target.sizeDelta = size;
+        target.anchoredPosition = GetAnchoredPositionMatchingReferenceBottom(target, source, source.anchoredPosition, size, size);
+    }
+
+    Vector2 GetAnchoredPositionMatchingReferenceVisual(RectTransform target, RectTransform reference, Vector2 referenceAnchoredPosition, Vector2 referenceSize, Vector2 targetSize)
+    {
+        var referencePivot = reference != null ? reference.pivot : new Vector2(0.5f, 0.5f);
+        var targetPivot = target != null ? target.pivot : new Vector2(0.5f, 0.5f);
+        var referenceCenter = referenceAnchoredPosition + new Vector2(
+            (0.5f - referencePivot.x) * referenceSize.x,
+            (0.5f - referencePivot.y) * referenceSize.y);
+
+        var referenceParent = reference != null ? reference.parent as RectTransform : null;
+        var targetParent = target != null ? target.parent as RectTransform : null;
+        if (referenceParent != null && targetParent != null && referenceParent != targetParent)
+        {
+            var worldCenter = referenceParent.TransformPoint(referenceCenter);
+            referenceCenter = targetParent.InverseTransformPoint(worldCenter);
+        }
+
+        return referenceCenter + new Vector2(
+            (targetPivot.x - 0.5f) * targetSize.x,
+            (targetPivot.y - 0.5f) * targetSize.y);
+    }
+
+    Vector2 GetAnchoredPositionMatchingReferenceBottom(RectTransform target, RectTransform reference, Vector2 referenceAnchoredPosition, Vector2 referenceSize, Vector2 targetSize)
+    {
+        var referencePivot = reference != null ? reference.pivot : new Vector2(0.5f, 0f);
+        var targetPivot = target != null ? target.pivot : new Vector2(0.5f, 0f);
+        var referenceBottomCenter = referenceAnchoredPosition + new Vector2(
+            (0.5f - referencePivot.x) * referenceSize.x,
+            -referencePivot.y * referenceSize.y);
+
+        var referenceParent = reference != null ? reference.parent as RectTransform : null;
+        var targetParent = target != null ? target.parent as RectTransform : null;
+        if (referenceParent != null && targetParent != null && referenceParent != targetParent)
+        {
+            var worldBottomCenter = referenceParent.TransformPoint(referenceBottomCenter);
+            referenceBottomCenter = targetParent.InverseTransformPoint(worldBottomCenter);
+        }
+
+        return referenceBottomCenter + new Vector2(
+            (targetPivot.x - 0.5f) * targetSize.x,
+            targetPivot.y * targetSize.y);
     }
 
     void SetPivotKeepingVisualPosition(RectTransform rect, Vector2 pivot)
