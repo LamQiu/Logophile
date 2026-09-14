@@ -432,7 +432,11 @@ namespace UI
             m_answerInputCaretCoroutine = null;
         }
 
-        public void UpdateAnswerInputFieldInteractability(bool interactable)
+        /// <param name="withSubmitLockedVisual">
+        /// When locking (<paramref name="interactable"/> false) under MainUI, also play the local-only submit lock text color.
+        /// Leave false for transitional disables (loading / next round) that are not a successful submit.
+        /// </param>
+        public void UpdateAnswerInputFieldInteractability(bool interactable, bool withSubmitLockedVisual = false)
         {
             var field = AnswerInputField;
             if (field == null) return;
@@ -441,6 +445,14 @@ namespace UI
             field.readOnly = !interactable;
             if (!interactable)
                 field.DeactivateInputField();
+
+            if (!UsesMainUiGameplayFlow || m_mainUI == null)
+                return;
+
+            if (interactable)
+                m_mainUI.SetSharedInputSubmitLockedVisual(false);
+            else if (withSubmitLockedVisual)
+                m_mainUI.SetSharedInputSubmitLockedVisual(true);
         }
 
         public void SetAnswerInputEnabled(bool enabled)
@@ -477,6 +489,9 @@ namespace UI
             field.enabled = true;
             field.interactable = true;
             field.readOnly = false;
+
+            if (UsesMainUiGameplayFlow && m_mainUI != null)
+                m_mainUI.SetSharedInputSubmitLockedVisual(false);
 
             if (EventSystem.current != null)
                 EventSystem.current.SetSelectedGameObject(field.gameObject);

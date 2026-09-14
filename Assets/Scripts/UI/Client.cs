@@ -495,7 +495,7 @@ public class Client : NetworkBehaviour
         _roundManager.SubmitAnswerServerRpc(OwnerClientId, answer);
         m_answerCheckedValid = true;
         AnswerCheckedValid.Value = true;
-        UIManager.Instance.UpdateAnswerInputFieldInteractability(false);
+        UIManager.Instance.UpdateAnswerInputFieldInteractability(false, withSubmitLockedVisual: true);
         AudioManager.Instance.PlaySubmitSfxServerRpc();
 
         return true;

@@ -8608,7 +8608,7 @@ MonoBehaviour:
   _roomIdCWidth: 100
   _inputFieldRoomIdSize: {x: 1800.3005, y: 120.4148}
   _inputFieldPlaceholderText: {fileID: 1523783875228293159}
-  _roomIdPlaceholder: create / join
+  _roomIdPlaceholder: 
   _inputFieldPlaceholderColor: {r: 0.25882354, g: 0.25490198, b: 0.25490198, a: 0.5}
   _roomIdTitleTypewriter: {fileID: 6712761262141656325}
   _roomIdTitleGroup: {fileID: 7016132787650353461}
@@ -8633,6 +8633,10 @@ MonoBehaviour:
   _waitingHintGroup: {fileID: 2848448232785827409}
   _waitingP1Group: {fileID: 6742156820025350322}
   _waitingP2Group: {fileID: 178558500346766167}
+  _waitingP1Dot: {fileID: 7706063320674776711}
+  _waitingP2Dot: {fileID: 5777528558576231241}
+  _waitingDotPresentColor: {r: 0.38823533, g: 0.3803922, b: 0.37647063, a: 1}
+  _waitingDotReadyColor: {r: 1, g: 0.9882353, b: 0.96862745, a: 1}
   _waitingContentGapAfterReveal: 0.1
   _waitingContentStagger: 0.1
   _waitingContentFadeDuration: 0.3

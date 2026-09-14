@@ -203,7 +203,7 @@ public class MainUIController : MonoBehaviour
     [Header("Room ID Transition - Input Field")]
     [SerializeField] Vector2 _inputFieldRoomIdSize;
     [SerializeField] TMP_Text _inputFieldPlaceholderText;
-    [SerializeField] string _roomIdPlaceholder = "create / join";
+    [SerializeField] string _roomIdPlaceholder = "";
     [SerializeField] Color _inputFieldPlaceholderColor = new Color(0.25882354f, 0.25490198f, 0.25490198f, 0.5f);
 
     [Header("Room ID Transition - Fade In")]
@@ -217,6 +217,11 @@ public class MainUIController : MonoBehaviour
 
     [Header("Waiting Transition - InputField")]
     [SerializeField] string _waitingPlaceholder = "ready";
+
+    [Header("Shared Input - Submit Lock Visual")]
+    [Tooltip("Local-only Image (targetGraphic) color when the shared input locks after ready / word submit. Not networked.")]
+    [SerializeField] Color _sharedInputSubmitLockedImageColor = new Color(0.52156866f, 0.52156866f, 0.52156866f, 1f);
+    [SerializeField] float _sharedInputSubmitLockedColorDuration = 0.2f;
 
     [Header("Waiting Transition - Black Panel")]
     [SerializeField] RectTransform _waitingPanel;
@@ -236,6 +241,12 @@ public class MainUIController : MonoBehaviour
     [SerializeField] CanvasGroup _waitingHintGroup;
     [SerializeField] CanvasGroup _waitingP1Group;
     [SerializeField] CanvasGroup _waitingP2Group;
+    [Tooltip("Prefabs/UI/MainUI ....UI/dot1 — visible when P1 (clientId 0) is in the session.")]
+    [SerializeField] Image _waitingP1Dot;
+    [Tooltip("Prefabs/UI/MainUI ....UI/dot2 — visible when P2 (clientId 1) is in the session.")]
+    [SerializeField] Image _waitingP2Dot;
+    [SerializeField] Color _waitingDotPresentColor = new Color(0.38823533f, 0.3803922f, 0.37647063f, 1f);
+    [SerializeField] Color _waitingDotReadyColor = new Color(1f, 0.9882353f, 0.96862745f, 1f);
     [SerializeField] float _waitingContentGapAfterReveal = 0.1f;
     [SerializeField] float _waitingContentStagger = 0.1f;
     [SerializeField] float _waitingContentFadeDuration = 0.3f;
@@ -419,6 +430,8 @@ public class MainUIController : MonoBehaviour
     bool _waitingP2LobbyRevealCompleted;
     bool _waitingLobbyCallbackRegistered;
     bool _waitingCommandListenerRegistered;
+    bool _waitingReadyNvSubscribed;
+    GameManager _waitingReadyGameManager;
     /// <summary>True after the local player submitted <c>ready</c> in Waiting; keeps shared input showing "ready" but non-interactive, and prevents <see cref="WaitingRevealRoutine"/> from re-focusing the field.</summary>
     bool _waitingReadySubmitted;
     Vector2 _startTitleInitialAnchoredPosition;
@@ -428,6 +441,8 @@ public class MainUIController : MonoBehaviour
     Color _initialInputTextColor;
     TextAlignmentOptions _initialInputTextAlignment;
     bool _hasInitialInputTextStyle;
+    bool _sharedInputSubmitLockedVisualActive;
+    Color _sharedInputSubmitUnlockedImageColor;
     bool _createLoadingVisualActive;
     Coroutine _createLoadingTextCoroutine;
     Coroutine _createLoadingToWaitingCoroutine;
@@ -488,9 +503,50 @@ public class MainUIController : MonoBehaviour
         if (!_hasInitialInputTextStyle || _inputField == null || _inputField.textComponent == null)
             return;
 
+        _inputField.textComponent.DOKill();
         _inputField.textComponent.color = _initialInputTextColor;
         _inputField.textComponent.alignment = _initialInputTextAlignment;
         SetTextFullyVisible(_inputField.textComponent);
+    }
+
+    /// <summary>
+    /// Local-only feedback when the shared TMP locks after a successful ready/word submit.
+    /// Tweens the input field Image (<see cref="TMP_InputField.targetGraphic"/>), not the text.
+    /// Does not sync across clients — each peer only sees its own input field.
+    /// </summary>
+    public void SetSharedInputSubmitLockedVisual(bool locked)
+    {
+        if (_inputField == null || _inputField.targetGraphic == null)
+            return;
+
+        var image = _inputField.targetGraphic;
+        image.DOKill();
+
+        if (locked)
+        {
+            if (!_sharedInputSubmitLockedVisualActive)
+                _sharedInputSubmitUnlockedImageColor = image.color;
+            _sharedInputSubmitLockedVisualActive = true;
+            var duration = Mathf.Max(0f, _sharedInputSubmitLockedColorDuration);
+            if (duration <= 0f)
+                image.color = _sharedInputSubmitLockedImageColor;
+            else
+                image.DOColor(_sharedInputSubmitLockedImageColor, duration).SetEase(_ease);
+            return;
+        }
+
+        if (!_sharedInputSubmitLockedVisualActive)
+            return;
+
+        _sharedInputSubmitLockedVisualActive = false;
+        image.color = _sharedInputSubmitUnlockedImageColor;
+    }
+
+    void ClearSharedInputSubmitLockedVisualImmediate()
+    {
+        if (_inputField != null && _inputField.targetGraphic != null)
+            _inputField.targetGraphic.DOKill();
+        _sharedInputSubmitLockedVisualActive = false;
     }
 
     void RestoreInputFieldInitialFootprint(bool clearText)
@@ -836,12 +892,14 @@ public class MainUIController : MonoBehaviour
     {
         RegisterGameplayInputListener();
         TryRegisterWaitingLobbyCallback();
+        TrySubscribeWaitingReadyNetworkVariables();
     }
 
     void OnDisable()
     {
         UnregisterGameplayInputListener();
         TryUnregisterWaitingLobbyCallback();
+        TryUnsubscribeWaitingReadyNetworkVariables();
         UnregisterWaitingCommandInputListener();
         UnsubscribeRoundTimerAcceleratedVisual();
         _awaitingResolutionScoresWhileLoading = false;
@@ -858,6 +916,8 @@ public class MainUIController : MonoBehaviour
             RefreshPromptCalibrationOverlay();
         if (!_waitingLobbyCallbackRegistered)
             TryRegisterWaitingLobbyCallback();
+        if (!_waitingReadyNvSubscribed)
+            TrySubscribeWaitingReadyNetworkVariables();
     }
 
     [ContextMenu("Play Intro")]
@@ -1148,6 +1208,8 @@ public class MainUIController : MonoBehaviour
         if (_waitingP2Group != null) _waitingP2Group.alpha = 0f;
 
         TryRegisterWaitingLobbyCallback();
+        TrySubscribeWaitingReadyNetworkVariables();
+        RefreshWaitingLobbyDots();
         RegisterWaitingCommandInputListener();
         if (fromCreateLoading)
             seq.OnComplete(FinishCreateLoadingInputHandoffToWaiting);
@@ -1410,10 +1472,12 @@ public class MainUIController : MonoBehaviour
             _inputField.readOnly = true;
             _inputField.DeactivateInputField();
             _inputField.SetTextWithoutNotify(MainUiDisplayText(_createLoadingText));
+            ClearSharedInputSubmitLockedVisualImmediate();
             if (_inputField.targetGraphic != null)
                 _inputField.targetGraphic.color = _promptInkColor;
             if (_inputField.textComponent != null)
             {
+                _inputField.textComponent.DOKill();
                 _inputField.textComponent.color = _promptPaperColor;
                 _inputField.textComponent.alignment = TextAlignmentOptions.Left;
                 ApplySingleLineOverflow(_inputField.textComponent);
@@ -2482,6 +2546,7 @@ public class MainUIController : MonoBehaviour
         }
         else if (_waitingP2Group != null && !_waitingP2LobbyRevealCompleted)
             _waitingP2Group.alpha = 0f;
+        RefreshWaitingLobbyDots();
         yield return new WaitForSeconds(_waitingContentFadeDuration + _waitingContentStagger);
 
         // 4) "type ready to ready up" hint typewriter
@@ -2557,7 +2622,9 @@ public class MainUIController : MonoBehaviour
     {
         if (_inputFieldPlaceholderText == null) return;
 
-        _inputFieldPlaceholderText.text = MainUiDisplayText(_roomIdPlaceholder);
+        _inputFieldPlaceholderText.text = string.IsNullOrEmpty(_roomIdPlaceholder)
+            ? string.Empty
+            : MainUiDisplayText(_roomIdPlaceholder);
         _inputFieldPlaceholderText.color = _inputFieldPlaceholderColor;
     }
 
@@ -2567,6 +2634,8 @@ public class MainUIController : MonoBehaviour
         SetTypewriterTextColor(_waitingRoomIdTypewriter, _roundResultMutedTextColor);
         SetTypewriterTextColor(_waitingHintTypewriter, _promptPaperColor);
         ConfigureWaitingDotsSpacing();
+        EnsureWaitingLobbyDotsResolved();
+        RefreshWaitingLobbyDots();
     }
 
     void SetTypewriterTextColor(TypewriterEffect typewriter, Color color)
@@ -2610,6 +2679,109 @@ public class MainUIController : MonoBehaviour
         var layout = dots.GetComponent<HorizontalLayoutGroup>();
         if (layout != null)
             layout.spacing = 52.66f;
+    }
+
+    void EnsureWaitingLobbyDotsResolved()
+    {
+        if (_waitingP1Dot != null && _waitingP2Dot != null) return;
+        if (_waitingTitleGroup == null || !(_waitingTitleGroup.transform is RectTransform root)) return;
+
+        var dotsRoot = FindChildRect(root, "....UI");
+        if (dotsRoot == null) return;
+
+        if (_waitingP1Dot == null)
+        {
+            var rect = FindChildRect(dotsRoot, "dot1");
+            if (rect != null)
+                _waitingP1Dot = rect.GetComponent<Image>();
+        }
+
+        if (_waitingP2Dot == null)
+        {
+            var rect = FindChildRect(dotsRoot, "dot2");
+            if (rect != null)
+                _waitingP2Dot = rect.GetComponent<Image>();
+        }
+    }
+
+    /// <summary>
+    /// Local MainUI mirror of lobby presence + <see cref="GameManager.P1Ready"/> / <see cref="GameManager.P2Ready"/>.
+    /// Each client refreshes from synced NetworkVariables / ConnectedClients — dots themselves are not networked.
+    /// </summary>
+    void RefreshWaitingLobbyDots()
+    {
+        EnsureWaitingLobbyDotsResolved();
+
+        var p1Present = IsWaitingLobbyClientPresent(0);
+        var p2Present = IsWaitingLobbyClientPresent(1);
+        var gm = GameManager.Instance;
+        var p1Ready = gm != null && gm.P1Ready.Value;
+        var p2Ready = gm != null && gm.P2Ready.Value;
+
+        ApplyWaitingLobbyDot(_waitingP1Dot, p1Present, p1Ready);
+        ApplyWaitingLobbyDot(_waitingP2Dot, p2Present, p2Ready);
+    }
+
+    static bool IsWaitingLobbyClientPresent(ulong clientId)
+    {
+        var nm = NetworkManager.Singleton;
+        if (nm == null || !nm.IsClient)
+            return clientId == 0;
+        return nm.ConnectedClients.ContainsKey(clientId);
+    }
+
+    void ApplyWaitingLobbyDot(Image dot, bool present, bool ready)
+    {
+        if (dot == null) return;
+
+        if (!present)
+        {
+            dot.gameObject.SetActive(false);
+            return;
+        }
+
+        if (!dot.gameObject.activeSelf)
+            dot.gameObject.SetActive(true);
+        dot.color = ready ? _waitingDotReadyColor : _waitingDotPresentColor;
+    }
+
+    void TrySubscribeWaitingReadyNetworkVariables()
+    {
+        if (_waitingReadyNvSubscribed) return;
+        var gm = GameManager.Instance;
+        if (gm == null) return;
+
+        gm.P1Ready.OnValueChanged += OnWaitingP1ReadyChanged;
+        gm.P2Ready.OnValueChanged += OnWaitingP2ReadyChanged;
+        _waitingReadyGameManager = gm;
+        _waitingReadyNvSubscribed = true;
+        if (_currentState == MainUIState.Waiting)
+            RefreshWaitingLobbyDots();
+    }
+
+    void TryUnsubscribeWaitingReadyNetworkVariables()
+    {
+        if (!_waitingReadyNvSubscribed) return;
+        if (_waitingReadyGameManager != null)
+        {
+            _waitingReadyGameManager.P1Ready.OnValueChanged -= OnWaitingP1ReadyChanged;
+            _waitingReadyGameManager.P2Ready.OnValueChanged -= OnWaitingP2ReadyChanged;
+        }
+
+        _waitingReadyGameManager = null;
+        _waitingReadyNvSubscribed = false;
+    }
+
+    void OnWaitingP1ReadyChanged(bool previousValue, bool newValue)
+    {
+        if (_currentState == MainUIState.Waiting)
+            RefreshWaitingLobbyDots();
+    }
+
+    void OnWaitingP2ReadyChanged(bool previousValue, bool newValue)
+    {
+        if (_currentState == MainUIState.Waiting)
+            RefreshWaitingLobbyDots();
     }
 
     IEnumerator TutorialRevealRoutine()
@@ -3430,7 +3602,10 @@ public class MainUIController : MonoBehaviour
             _inputFieldContentGroup.blocksRaycasts = false;
         }
         if (_inputFieldRect != null && _inputField.targetGraphic != null)
+        {
+            ClearSharedInputSubmitLockedVisualImmediate();
             _inputField.targetGraphic.color = _promptInkColor;
+        }
     }
 
     void PrepareRoundResultContentForReveal()
@@ -4378,7 +4553,10 @@ public class MainUIController : MonoBehaviour
             }
 
             if (_inputField.targetGraphic != null)
+            {
+                ClearSharedInputSubmitLockedVisualImmediate();
                 _inputField.targetGraphic.color = _promptInkColor;
+            }
         }
         if (_inputFieldPlaceholderText != null && !preserveSubmitLock)
         {
@@ -4627,6 +4805,7 @@ public class MainUIController : MonoBehaviour
         if (_waitingLobbyCallbackRegistered) return;
         if (NetworkManager.Singleton == null) return;
         NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnectedWaitingLobbyRevealP2;
+        NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnectedWaitingLobby;
         _waitingLobbyCallbackRegistered = true;
     }
 
@@ -4634,7 +4813,10 @@ public class MainUIController : MonoBehaviour
     {
         if (!_waitingLobbyCallbackRegistered) return;
         if (NetworkManager.Singleton != null)
+        {
             NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnectedWaitingLobbyRevealP2;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnectedWaitingLobby;
+        }
         _waitingLobbyCallbackRegistered = false;
     }
 
@@ -4647,6 +4829,25 @@ public class MainUIController : MonoBehaviour
         // Must run on every client: non-host may have entered Waiting while alone (P2 icon skipped in
         // WaitingRevealRoutine); only host used to call Reveal here, so P2's machine never faded P2 in.
         RevealWaitingP2PlayerIconFromLobbyIfNeeded();
+        RefreshWaitingLobbyDots();
+    }
+
+    void OnClientDisconnectedWaitingLobby(ulong clientId)
+    {
+        if (_currentState != MainUIState.Waiting) return;
+
+        if (!ShouldShowWaitingP2PlayerIcon())
+        {
+            _waitingP2LobbyRevealCompleted = false;
+            if (_waitingP2Group != null)
+            {
+                _waitingP2Group.DOKill();
+                _waitingP2Group.alpha = 0f;
+            }
+        }
+
+        ConfigureWaitingPlayerIconsLayout();
+        RefreshWaitingLobbyDots();
     }
 
     void RevealWaitingP2PlayerIconFromLobbyIfNeeded()
@@ -4693,7 +4894,7 @@ public class MainUIController : MonoBehaviour
         if (field == null) return;
 
         field.SetTextWithoutNotify(MainUiDisplayText(_waitingPlaceholder));
-        UI.UIManager.Instance.UpdateAnswerInputFieldInteractability(false);
+        UI.UIManager.Instance.UpdateAnswerInputFieldInteractability(false, withSubmitLockedVisual: true);
     }
 
     IEnumerator CoEnsureWaitingReadyTextAfterSubmitDelayed()
@@ -4944,7 +5145,7 @@ public class MainUIController : MonoBehaviour
             FocusGameplayInputField();
         }
         else
-            UI.UIManager.Instance?.UpdateAnswerInputFieldInteractability(false);
+            UI.UIManager.Instance?.UpdateAnswerInputFieldInteractability(false, withSubmitLockedVisual: true);
 
         NotifyGameplayUiEnteredToServer();
         RegisterLocalOwnerGameplayAnswerInput();
